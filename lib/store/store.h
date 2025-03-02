@@ -29,9 +29,6 @@
 
 typedef struct {
     u8 anno_open = 1;         // G1 animation switch
-    u8 rgb_open = 1;          // RGB lighting effect switch
-    u8 rgb_style = 2;         // RGB lighting effect style RGB_STYLE_2
-    u8 rgb_brightness = 128;  // RGB brightness
 
     char custom_long_text[50] = {"Hello VFD"};  // Scrolling text
     u8 custom_long_text_frame = 255;            // Scrolling text frame rate

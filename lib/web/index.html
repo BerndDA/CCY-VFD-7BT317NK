@@ -43,20 +43,6 @@
                         <el-form-item label="G1 Animation">
                             <el-switch v-model="form.annoOpen"></el-switch>
                         </el-form-item>
-                        <el-form-item label="RGB Lighting Effect">
-                            <el-switch v-model="form.rgbOpen"></el-switch>
-                        </el-form-item>
-                        <el-form-item label="RGB Lighting Style" v-if="form.rgbOpen">
-                            <el-radio-group v-model="form.rgbStyle">
-                                <el-radio :label="1">Gradient Breathing</el-radio>
-                                <el-radio :label="2">Rainbow Gradient</el-radio>
-                                <el-radio :label="3">Horror Gloom</el-radio>
-                            </el-radio-group>
-                        </el-form-item>
-                        <el-form-item label="RGB Brightness" v-if="form.rgbOpen">
-                            <el-slider :show-tooltip="false" v-model="form.rgbBrightness" :min="15" :max="255"></el-slider>
-                            <el-tag effect="dark" type="primary">Brightness Percentage: {{Math.floor(form.rgbBrightness/255*100)}}%</el-tag>
-                        </el-form-item>
                         <el-form-item label="Scrolling Text">
                             <span slot="label">Scrolling Text
                                 <el-tag effect="plain" style="margin-left: 5px;" size="mini" type="info">English numbers, punctuation marks under English. Chinese is not supported</el-tag>
@@ -109,12 +95,6 @@
                             <el-switch v-model="form.countdown"></el-switch>
                             <el-time-picker style="margin-left: 10px;" v-if="form.countdown" value-format="HH:mm:ss" clearable :picker-options="{ start: '00:00:01', step: '00:00:01', end: '12:59:59' }" v-model="form.countdownTime" placeholder="Hours Minutes Seconds"></el-time-picker>
                         </el-form-item>
-                        <el-form-item label="OTA Firmware Upgrade">
-                            <el-link href="/update" type="primary">Go to Upgrade Page</el-link>
-                            <p>Operation Tutorial:
-                                <el-link target="_blank" href="http://www.saisaiwa.com/archives/vfd-clock-userdescription" type="info">User Manual</el-link>
-                            </p>
-                        </el-form-item>
                         <el-button :loading="btnLoading" @click="saveSetting" style="margin-top: 30px;" icon="el-icon-check" type="primary" round>Save Changes</el-button>
                     </el-form>
                 </el-card>
@@ -136,9 +116,6 @@
                     btnLoading: false,
                     form: {
                         annoOpen: false,
-                        rgbOpen: false,
-                        rgbStyle: 1,
-                        rgbBrightness: 255,
                         customLongText: "Hello World",
                         customLongTextFrame: 200,
                         autoPower: false,

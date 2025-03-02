@@ -27,12 +27,6 @@ void http_reqeust_save_setteing();
 void http_reqeust_get_setteing();
 
 void web_setup() {
-
-
-    if (WiFi.isConnected()) {
-        return;
-    }
-
     server.begin();
     server.on("/", handle_index);
     server.on("/save-setting", http_reqeust_save_setteing);
@@ -78,9 +72,6 @@ void http_reqeust_save_setteing() {
     // 处理JSON数据
     JsonObject root = jsonDoc.as<JsonObject>();
     setting_obj.anno_open = root["annoOpen"].as<u8>();
-    setting_obj.rgb_open = root["rgbOpen"].as<u8>();
-    setting_obj.rgb_style = root["rgbStyle"].as<u8>();
-    setting_obj.rgb_brightness = root["rgbBrightness"].as<u8>();
 
     strcpy(setting_obj.custom_long_text, root["customLongText"]);
     setting_obj.custom_long_text_frame = root["customLongTextFrame"].as<u8>();
@@ -124,9 +115,6 @@ void http_reqeust_get_setteing() {
 
     // 将结构体数据转换为JSON
     jsonDoc["annoOpen"] = setting_obj.anno_open ? true : false;
-    jsonDoc["rgbOpen"] = setting_obj.rgb_open ? true : false;
-    jsonDoc["rgbStyle"] = setting_obj.rgb_style;
-    jsonDoc["rgbBrightness"] = setting_obj.rgb_brightness;
     jsonDoc["customLongText"] = setting_obj.custom_long_text;
     jsonDoc["customLongTextFrame"] = setting_obj.custom_long_text_frame;
     jsonDoc["autoPower"] = setting_obj.auto_power ? true : false;

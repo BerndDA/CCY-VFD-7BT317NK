@@ -119,18 +119,6 @@ void vfd_gui_set_maohao1(u8 open);
 void vfd_gui_set_maohao2(u8 open);
 
 /**
- * Loop scroll to display all text, can display any length of character content
- * @param string The content string to display
- * @param delay_ms Loop display refresh frequency in Ms
- * @param loop_count Number of loop plays
- **/
-void vfd_gui_set_long_text(const char *string, u32 delay_ms, size_t loop_count);
-/**
- * If there is an unfinished loop playback in vfd_gui_set_long_text, calling this method will force it to end
- */
-void vfd_gui_cancel_long_text();
-
-/**
  * Get font value, internal use
  */
 u32 gui_get_font(char c);

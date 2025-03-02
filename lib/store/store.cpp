@@ -47,9 +47,6 @@ void store_save_setting(store_setting_obj* obj) {
 
     // 将结构体数据转换为JSON
     jsonDoc["annoOpen"] = obj->anno_open;
-    jsonDoc["rgbOpen"] = obj->rgb_open;
-    jsonDoc["rgbStyle"] = obj->rgb_style;
-    jsonDoc["rgbBrightness"] = obj->rgb_brightness;
     jsonDoc["customLongText"] = obj->custom_long_text;
     jsonDoc["customLongTextFrame"] = obj->custom_long_text_frame;
     jsonDoc["autoPower"] = obj->auto_power;
@@ -108,9 +105,6 @@ void store_get_setting(store_setting_obj* obj) {
         // 处理JSON数据
         JsonObject root = jsonDoc.as<JsonObject>();
         obj->anno_open = root["annoOpen"].as<u8>();
-        obj->rgb_open = root["rgbOpen"].as<u8>();
-        obj->rgb_style = root["rgbStyle"].as<u8>();
-        obj->rgb_brightness = root["rgbBrightness"].as<u8>();
 
         strcpy(obj->custom_long_text, root["customLongText"]);
         obj->custom_long_text_frame = root["customLongTextFrame"].as<u8>();
@@ -156,9 +150,6 @@ void store_del_setting(void) {
 void store_print_debug(store_setting_obj setting_obj) {
     printf("\n输出结果:\n");
     printf("anno_open: %d\n", setting_obj.anno_open);
-    printf("rgb_open: %d\n", setting_obj.rgb_open);
-    printf("rgb_style: %d\n", setting_obj.rgb_style);
-    printf("rgb_brightness: %d\n", setting_obj.rgb_brightness);
     printf("custom_long_text: %s\n", setting_obj.custom_long_text);
     printf("custom_long_text_frame: %d\n", setting_obj.custom_long_text_frame);
     printf("auto_power: %d\n", setting_obj.auto_power);

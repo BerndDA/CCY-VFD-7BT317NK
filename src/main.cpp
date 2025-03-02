@@ -31,6 +31,7 @@
 #include <service.h>
 #include <web_server.h>
 #include <WiFiManager.h>
+#include <longtext.h>
 
 #define MY_NTP_SERVER "at.pool.ntp.org"
 #define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"
@@ -48,7 +49,6 @@ void countdown_handle(u8 state, u8 hour, u8 min, u8 sec);
 
 u8 power = 1;      // Power
 u8 countdounw = 0; // Whether to enable countdown mode
-u8 ota_runn = 0;   // Is OTA upgrade in progress?
 
 u32 key_filter_sec = 0; // Key debounce
 u32 k1_last_time = 0;   // Last trigger time record of key 1
@@ -65,10 +65,10 @@ const u8 style_max = 3;        // Total number of supported page display styles
 u8 style_page = STYLE_DEFAULT; // Page display style
 
 // Timer initialization
-Ticker task_led;          // LED executor
 Ticker task_time_refresh; // Time refresh
 
 WiFiManager wifimanager;
+Longtext longtext;
 
 void setup()
 {
@@ -77,19 +77,13 @@ void setup()
     set_key_listener();
     configTime(MY_TZ, MY_NTP_SERVER);
 
-    // Initialize VFD
-    delay(500);
     vfd_gui_init();
     vfd_gui_set_blk_level(light_level);
-    vfd_gui_set_text("vfd-03");
-    delay(500);
-    vfd_gui_set_text("start.");
+    vfd_gui_set_text(" boot");
     // Initialize StoreFS
     store_init();
     // Read data
     store_get_setting(&setting_obj);
-
-    //web_setup(configModeTimeoutError);
     wifimanager.autoConnect("VFD-03");
     vfd_gui_set_pic(PIC_WIFI, true);
     web_setup();
@@ -97,21 +91,21 @@ void setup()
     ArduinoOTA.setPassword("lonelybinary");
     ArduinoOTA.onStart([]()
                        {
-        ota_runn = 1;
         task_time_refresh.detach();
-        vfd_gui_set_text("*OTA*");
+        longtext.set_and_start("*OTA*", 120, 100);
         vfd_gui_set_pic(PIC_REC, true); });
     ArduinoOTA.onEnd([]()
                      {
-        ota_runn = 0;
+        longtext.stop();
         vfd_gui_set_pic(PIC_REC, false);
         vfd_gui_set_text("reboot");
         ESP.restart(); });
     ArduinoOTA.begin();
-
-    vfd_gui_set_long_text(WiFi.localIP().toString().c_str(), 210, 1);
-    vfd_gui_set_text("load.");
-    getTimeInfo();
+    longtext.onStart([]()
+                     { style_page = STYLE_TEXT; });
+    longtext.onEnd([]()
+                   { style_page = STYLE_DEFAULT; });
+    longtext.set_and_start(WiFi.localIP().toString().c_str());
 }
 
 void loop()
@@ -143,12 +137,6 @@ void set_key_listener()
     attachInterrupt(digitalPinToInterrupt(KEY1), handle_key_interrupt, CHANGE);
     attachInterrupt(digitalPinToInterrupt(KEY2), handle_key_interrupt, CHANGE);
     attachInterrupt(digitalPinToInterrupt(KEY3), handle_key_interrupt, CHANGE);
-}
-
-void configModeTimeoutError()
-{
-    delay(500);
-    vfd_gui_set_long_text("connect timeout Please power up again!", 200, 1);
 }
 
 void getTimeInfo()
@@ -227,7 +215,7 @@ IRAM_ATTR void handle_key_interrupt()
         Serial.println("FN");
         style_page = (style_page + 1) % style_max;
         k1_last_time = micros();
-        vfd_gui_cancel_long_text();
+        longtext.stop();
     }
     else if (digitalRead(KEY3))
     {
@@ -259,9 +247,11 @@ void task_time_refresh_fun()
     if (style_page == STYLE_DEFAULT)
     {
         char buffer[60];
-        if (timeinfo.tm_sec % 15 == 0)
+        if (timeinfo.tm_sec % 20 == 0)
         {
-            style_page = STYLE_DATE;
+            strftime(buffer, sizeof(buffer), "%A %d %B %Y", &timeinfo);
+            longtext.set_and_start(buffer, 210);
+            return;
         }
         strftime(buffer, sizeof(buffer), "%H%M%S", &timeinfo);
         vfd_gui_set_text(buffer);
@@ -298,25 +288,18 @@ void vfd_synchronous()
             memcpy(long_text, setting_obj.custom_long_text,
                    sizeof(setting_obj.custom_long_text));
         }
-        vfd_gui_set_long_text(long_text, setting_obj.custom_long_text_frame, 2);
+        longtext.set_and_start(long_text, setting_obj.custom_long_text_frame, 2);
     }
     else if (style_page == STYLE_CUSTOM_2)
     {
         if (WiFi.isConnected())
         {
-            vfd_gui_set_long_text(WiFi.localIP().toString().c_str(), 210, 1);
+            longtext.set_and_start(WiFi.localIP().toString().c_str(), 210, 1);
         }
         else
         {
-            vfd_gui_set_long_text("WiFi not connected", 210, 1);
+            longtext.set_and_start("WiFi not connected", 210, 1);
         }
-    }
-    else if (style_page == STYLE_DATE)
-    {
-        char buffer[60];
-        strftime(buffer, sizeof(buffer), "%A %d %B %Y", &timeinfo);
-        vfd_gui_set_long_text(buffer, 210, 1);
-        style_page = STYLE_DEFAULT;
     }
 }
 
@@ -335,8 +318,7 @@ void power_handle(u8 state)
         logic_handler_countdown_stop();
         web_stop();
         task_time_refresh.detach();
-        task_led.detach();
-        vfd_gui_cancel_long_text();
+        longtext.stop();
         vfd_gui_stop();
     }
     else
@@ -378,7 +360,7 @@ void countdown_handle(u8 state, u8 hour, u8 min, u8 sec)
     if (countdounw)
     {
         task_time_refresh.detach();
-        vfd_gui_cancel_long_text();
+        longtext.stop();
         time_str.clear();
         // Concatenate time string format: HH:mm:ss
         time_str += (hour < 10 ? "0" : "");
