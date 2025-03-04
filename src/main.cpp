@@ -32,6 +32,7 @@
 #include <web_server.h>
 #include <WiFiManager.h>
 #include <longtext.h>
+#include <base64_decoder.h>
 
 #define MY_NTP_SERVER "at.pool.ntp.org"
 #define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"
@@ -69,6 +70,7 @@ Ticker task_time_refresh; // Time refresh
 
 WiFiManager wifimanager;
 Longtext longtext;
+Base64Decoder base64Decoder;
 
 void setup()
 {
@@ -84,6 +86,16 @@ void setup()
     store_init();
     // Read data
     store_get_setting(&setting_obj);
+    FSInfo fs_info;
+    if (LittleFS.info(fs_info)) {
+      Serial.println("LittleFS Storage Information:");
+      Serial.printf("Total space:    %d bytes\n", fs_info.totalBytes);
+      Serial.printf("Used space:     %d bytes\n", fs_info.usedBytes);
+      Serial.printf("Available:      %d bytes\n", fs_info.totalBytes - fs_info.usedBytes);
+      Serial.printf("Usage:          %.2f%%\n", (float)fs_info.usedBytes / fs_info.totalBytes * 100);
+    } else {
+      Serial.println("Failed to get LittleFS info");
+    }
     wifimanager.autoConnect("VFD-03");
     vfd_gui_set_pic(PIC_WIFI, true);
     web_setup();
@@ -106,6 +118,19 @@ void setup()
     longtext.onEnd([]()
                    { style_page = STYLE_DEFAULT; });
     longtext.set_and_start(WiFi.localIP().toString().c_str());
+
+    base64Decoder.clearFiles();
+    if (base64Decoder.processApiData("https://kiwidesschicksals.de/kiwi2.php"))
+    {
+        Serial.println("Data processing completed successfully!");
+
+        // List all files saved to LittleFS
+        base64Decoder.listFiles();
+    }
+    else
+    {
+        Serial.println("Failed to process API data!");
+    }
 }
 
 void loop()
