@@ -87,14 +87,17 @@ void setup()
     // Read data
     store_get_setting(&setting_obj);
     FSInfo fs_info;
-    if (LittleFS.info(fs_info)) {
-      Serial.println("LittleFS Storage Information:");
-      Serial.printf("Total space:    %d bytes\n", fs_info.totalBytes);
-      Serial.printf("Used space:     %d bytes\n", fs_info.usedBytes);
-      Serial.printf("Available:      %d bytes\n", fs_info.totalBytes - fs_info.usedBytes);
-      Serial.printf("Usage:          %.2f%%\n", (float)fs_info.usedBytes / fs_info.totalBytes * 100);
-    } else {
-      Serial.println("Failed to get LittleFS info");
+    if (LittleFS.info(fs_info))
+    {
+        Serial.println("LittleFS Storage Information:");
+        Serial.printf("Total space:    %d bytes\n", fs_info.totalBytes);
+        Serial.printf("Used space:     %d bytes\n", fs_info.usedBytes);
+        Serial.printf("Available:      %d bytes\n", fs_info.totalBytes - fs_info.usedBytes);
+        Serial.printf("Usage:          %.2f%%\n", (float)fs_info.usedBytes / fs_info.totalBytes * 100);
+    }
+    else
+    {
+        Serial.println("Failed to get LittleFS info");
     }
     wifimanager.autoConnect("VFD-03");
     vfd_gui_set_pic(PIC_WIFI, true);
@@ -119,17 +122,18 @@ void setup()
                    { style_page = STYLE_DEFAULT; });
     longtext.set_and_start(WiFi.localIP().toString().c_str());
 
-    base64Decoder.clearFiles();
-    if (base64Decoder.processApiData("https://kiwidesschicksals.de/kiwi2.php"))
+    if (!base64Decoder.isDataAvailable())
     {
-        Serial.println("Data processing completed successfully!");
-
-        // List all files saved to LittleFS
-        base64Decoder.listFiles();
-    }
-    else
-    {
-        Serial.println("Failed to process API data!");
+        longtext.set_and_start("Kiwi Loading...", 210, 20);
+        if (base64Decoder.processApiData("https://kiwidesschicksals.de/kiwi2.php"))
+        {
+            Serial.println("Data processing completed successfully!");
+        }
+        else
+        {
+            Serial.println("Failed to process API data!");
+        }
+        longtext.stop();
     }
 }
 
@@ -213,11 +217,21 @@ IRAM_ATTR void handle_key_interrupt()
     }
     else if (!digitalRead(KEY1))
     {
-        key_last_pin = KEY1;
-        k1_last_time = 0;
-        Serial.println("Light-");
-        light_level = light_level == 1 ? 7 : 1;
-        vfd_gui_set_blk_level(light_level);
+        String kiwi = base64Decoder.getRandomSegment();
+        kiwi = "kiwi sagt...      " + kiwi;
+        kiwi.replace("ä", "ae");
+        kiwi.replace("ö", "oe");
+        kiwi.replace("ü", "ue");
+        kiwi.replace("Ä", "Ae");
+        kiwi.replace("Ö", "Oe");
+        kiwi.replace("Ü", "Ue");
+        kiwi.replace("ß", "ss");
+        longtext.set_and_start(kiwi.c_str(), 210);
+        // key_last_pin = KEY1;
+        // k1_last_time = 0;
+        // Serial.println("Light-");
+        // light_level = light_level == 1 ? 7 : 1;
+        // vfd_gui_set_blk_level(light_level);
     }
     else if (!digitalRead(KEY2))
     {

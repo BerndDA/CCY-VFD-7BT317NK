@@ -3,7 +3,8 @@
 
 Base64Decoder::Base64Decoder() : workingBuffer(NULL),
                                  workingBufferPos(0),
-                                 currentFileIndex(0)
+                                 segmentCount(0),
+                                 totalBytesWritten(0)
 {
 }
 
@@ -14,10 +15,20 @@ Base64Decoder::~Base64Decoder()
     free(workingBuffer);
     workingBuffer = NULL;
   }
+  
+  // Ensure the file is closed
+  if (outputFile)
+  {
+    outputFile.close();
+  }
 }
 
 bool Base64Decoder::begin()
 {
+  // Reset total bytes written
+  totalBytesWritten = 0;
+  segmentCount = 0;
+  
   // Allocate working buffer
   workingBuffer = (uint8_t *)malloc(maxWorkingBufferSize);
   if (workingBuffer == NULL)
@@ -33,7 +44,79 @@ bool Base64Decoder::begin()
     return false;
   }
 
+  // Open the output file
+  if (!openOutputFile())
+  {
+    return false;
+  }
+
   return true;
+}
+
+bool Base64Decoder::openOutputFile()
+{
+  // Open file for writing (will create or truncate existing file)
+  outputFile = LittleFS.open(outputFilename, "w");
+  if (!outputFile)
+  {
+    Serial.printf("Failed to open output file %s for writing\n", outputFilename);
+    return false;
+  }
+  
+  Serial.printf("Opened output file: %s\n", outputFilename);
+  return true;
+}
+
+void Base64Decoder::closeOutputFile()
+{
+  if (outputFile)
+  {
+    outputFile.close();
+    Serial.printf("Closed output file: %s\n", outputFilename);
+    
+    // Save metadata after closing the file
+    saveMetadata();
+  }
+}
+
+// New method to save metadata (segment count)
+void Base64Decoder::saveMetadata()
+{
+  File metadataFile = LittleFS.open(metadataFilename, "w");
+  if (!metadataFile)
+  {
+    Serial.printf("Failed to open metadata file %s for writing\n", metadataFilename);
+    return;
+  }
+  
+  metadataFile.println(segmentCount);
+  metadataFile.close();
+  
+  Serial.printf("Saved metadata: %d segments\n", segmentCount);
+}
+
+// New method to load metadata (segment count)
+void Base64Decoder::loadMetadata()
+{
+  if (!LittleFS.exists(metadataFilename))
+  {
+    Serial.printf("Metadata file %s not found, using current segment count: %d\n", 
+                 metadataFilename, segmentCount);
+    return;
+  }
+  
+  File metadataFile = LittleFS.open(metadataFilename, "r");
+  if (!metadataFile)
+  {
+    Serial.printf("Failed to open metadata file %s for reading\n", metadataFilename);
+    return;
+  }
+  
+  String countStr = metadataFile.readStringUntil('\n');
+  metadataFile.close();
+  
+  segmentCount = countStr.toInt();
+  Serial.printf("Loaded metadata: %d segments\n", segmentCount);
 }
 
 bool Base64Decoder::processApiData(const char *apiUrl)
@@ -70,10 +153,15 @@ bool Base64Decoder::processApiData(const char *apiUrl)
       // Process any remaining data in the working buffer
       if (workingBufferPos > 0)
       {
-        saveBufferToFile();
+        writeSegmentToFile();
       }
 
-      Serial.println("Stream processing complete!");
+      // Close the output file
+      closeOutputFile();
+
+      Serial.printf("Stream processing complete! Total bytes written: %u KB\n", totalBytesWritten / 1024);
+      Serial.printf("Total segments written: %d\n", segmentCount);
+      
       http.end();
       if (workingBuffer != NULL)
       {
@@ -89,6 +177,9 @@ bool Base64Decoder::processApiData(const char *apiUrl)
     Serial.println(httpCode);
   }
 
+  // Close the output file
+  closeOutputFile();
+
   http.end();
   if (workingBuffer != NULL)
   {
@@ -96,6 +187,12 @@ bool Base64Decoder::processApiData(const char *apiUrl)
     workingBuffer = NULL;
   }
   return false;
+}
+
+bool Base64Decoder::isDataAvailable()
+{
+  this->loadMetadata();
+  return segmentCount > 0;
 }
 
 void Base64Decoder::processStream(WiFiClient *stream)
@@ -263,7 +360,8 @@ void Base64Decoder::processStream(WiFiClient *stream)
         // Print progress every ~10KB of base64 data
         if (totalProcessed % 10240 < 512)
         {
-          Serial.printf("Processed %d bytes of base64 data\n", totalProcessed);
+          Serial.printf("Processed %d bytes of base64 data, written %u KB to filesystem\n", 
+                        totalProcessed, totalBytesWritten / 1024);
         }
       }
     }
@@ -291,6 +389,8 @@ void Base64Decoder::processStream(WiFiClient *stream)
   }
 
   Serial.printf("Total processed: %d bytes of base64 data\n", totalProcessed);
+  Serial.printf("Total written to filesystem: %u KB\n", totalBytesWritten / 1024);
+  Serial.printf("Total segments written: %d\n", segmentCount);
 }
 
 void Base64Decoder::processDecodedData(char *data, int length)
@@ -301,8 +401,8 @@ void Base64Decoder::processDecodedData(char *data, int length)
     // Check if we've found a separator
     if (data[i] == SEPARATOR)
     {
-      // Save the current buffer to a file (excluding the separator)
-      saveBufferToFile();
+      // Write the current buffer to the file (excluding the separator)
+      writeSegmentToFile();
 
       // Reset the working buffer position for the next segment
       workingBufferPos = 0;
@@ -316,9 +416,9 @@ void Base64Decoder::processDecodedData(char *data, int length)
       }
       else
       {
-        // Buffer overflow - save current buffer and reset
-        Serial.println("Warning: Working buffer overflow. Saving current segment.");
-        saveBufferToFile();
+        // Buffer overflow - write current buffer and reset
+        Serial.println("Warning: Working buffer overflow. Writing current segment.");
+        writeSegmentToFile();
         workingBufferPos = 0;
 
         // Now add the current byte
@@ -328,64 +428,110 @@ void Base64Decoder::processDecodedData(char *data, int length)
   }
 }
 
-void Base64Decoder::saveBufferToFile()
+void Base64Decoder::writeSegmentToFile()
 {
-  if (workingBufferPos == 0)
+  if (workingBufferPos == 0 || !outputFile)
   {
-    return; // Nothing to save
+    return; // Nothing to write or file not open
   }
 
-  // Create a filename for this segment
-  char filename[32];
-  sprintf(filename, "/segment_%03d.dat", currentFileIndex++);
-
-  // Open file for writing
-  File file = LittleFS.open(filename, "w");
-  if (!file)
-  {
-    Serial.printf("Failed to open file %s for writing\n", filename);
-    return;
+  // Write the segment data
+  size_t bytesWritten = outputFile.write(workingBuffer, workingBufferPos);
+  
+  // Write a newline character after the segment
+  if (bytesWritten == workingBufferPos) {
+    outputFile.write('\n');
+    bytesWritten++; // Include the newline in the count
   }
 
-  // Write data to file
-  size_t bytesWritten = file.write(workingBuffer, workingBufferPos);
-  file.close();
-
-  // read file as string and print
-  // file = LittleFS.open(filename, "r");
-  // String fileContent = file.readString();
-  // Serial.println(fileContent);
-  // file.close();
-
-  if (bytesWritten != workingBufferPos)
+  if (bytesWritten != workingBufferPos + 1) // +1 for newline
   {
     Serial.println("Error: File write incomplete");
   }
   else
   {
-    Serial.printf("Saved segment to %s, size: %d bytes\n", filename, bytesWritten);
-  }
-}
-
-void Base64Decoder::listFiles()
-{
-  Serial.println("Files in LittleFS:");
-  Dir dir = LittleFS.openDir("/");
-  while (dir.next())
-  {
-    Serial.printf(" - %s, size: %d bytes\n", dir.fileName().c_str(), dir.fileSize());
+    totalBytesWritten += bytesWritten;
+    segmentCount++;
+    Serial.printf("Wrote segment #%d, size: %d bytes\n", segmentCount, workingBufferPos);
+    Serial.printf("Total bytes written: %u KB\n", totalBytesWritten / 1024);
   }
 }
 
 void Base64Decoder::clearFiles()
 {
-  Serial.println("Clearing files in LittleFS...");
-  Dir dir = LittleFS.openDir("/");
-  while (dir.next())
+  Serial.println("Clearing output file...");
+  // Close file if it's open
+  if (outputFile)
   {
-    // delete if filename starts with "segment_"
-    if (dir.fileName().startsWith("/segment_"))
-      LittleFS.remove(dir.fileName());
+    outputFile.close();
   }
+  
+  // Remove the output file
+  if (LittleFS.exists(outputFilename))
+  {
+    LittleFS.remove(outputFilename);
+    Serial.printf("Removed file: %s\n", outputFilename);
+  }
+  
+  // Remove the metadata file
+  if (LittleFS.exists(metadataFilename))
+  {
+    LittleFS.remove(metadataFilename);
+    Serial.printf("Removed file: %s\n", metadataFilename);
+  }
+  
   Serial.println("Files cleared!");
+  
+  // Reset counters
+  totalBytesWritten = 0;
+  segmentCount = 0;
+}
+
+String Base64Decoder::getRandomSegment()
+{
+  // Load metadata to ensure we have the latest segment count
+  loadMetadata();
+  
+  // Return empty string if no segments or file doesn't exist
+  if (segmentCount == 0 || !LittleFS.exists(outputFilename))
+  {
+    Serial.println("No segments available to select");
+    return "";
+  }
+  
+  // Generate a random segment number between 1 and segmentCount
+  int randomSegmentNum = random(1, segmentCount + 1);
+  Serial.printf("Randomly selected segment #%d of %d\n", randomSegmentNum, segmentCount);
+  
+  // Open the file for reading
+  File file = LittleFS.open(outputFilename, "r");
+  if (!file)
+  {
+    Serial.printf("Failed to open file %s for reading\n", outputFilename);
+    return "";
+  }
+  
+  String segment = "";
+  int currentSegment = 0;
+  
+  // Read the file line by line (each line is a segment)
+  while (file.available())
+  {
+    String line = file.readStringUntil('\n');
+    currentSegment++;
+    
+    if (currentSegment == randomSegmentNum)
+    {
+      segment = line;
+      break;
+    }
+  }
+  
+  file.close();
+  
+  // Trim any trailing whitespace or newline characters
+  segment.trim();
+  
+  Serial.printf("Retrieved segment of length %d bytes\n", segment.length());
+  return segment;
 }
