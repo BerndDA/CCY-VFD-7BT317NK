@@ -46,6 +46,28 @@
 #define ICON_G1_STYLE_8 0x020000
 #define ICON_G1_STYLE_9 0x000100
 
+#define SEG_P0  (1 << 4)   // p0 maps to bit 4
+#define SEG_P1  (1 << 3)   // p1 maps to bit 3
+#define SEG_P2  (1 << 2)   // p2 maps to bit 2
+#define SEG_P3  (1 << 1)   // p3 maps to bit 1
+#define SEG_P4  (1 << 0)   // p4 maps to bit 0
+#define SEG_P5  (1 << 15)  // p5 maps to bit 15
+#define SEG_P6  (1 << 14)  // p6 maps to bit 14
+#define SEG_P7  (1 << 13)  // p7 maps to bit 13
+#define SEG_P8  (1 << 12)  // p8 maps to bit 12
+#define SEG_P9  (1 << 11)  // p9 maps to bit 11
+#define SEG_P10 (1 << 10)  // p10 maps to bit 10
+#define SEG_P11 (1 << 9)   // p11 maps to bit 9
+#define SEG_P12 (1 << 8)   // p12 maps to bit 8
+#define SEG_P13 (1 << 23)  // p13 maps to bit 23
+#define SEG_P14 (1 << 22)  // p14 maps to bit 22
+#define SEG_P15 (1 << 21)  // p15 maps to bit 21
+#define SEG_P16 (1 << 20)  // p16 maps to bit 20
+#define SEG_P17 (1 << 19)  // p17 maps to bit 19
+#define SEG_P18 (1 << 18)  // p18 maps to bit 18
+#define SEG_P19 (1 << 17)  // p19 maps to bit 17
+#define SEG_P20 (1 << 16)  // p20 maps to bit 16
+
 #define ICON_NONE 0 // Clear all ICON displays
 
 // VFD digit length

@@ -2,6 +2,50 @@
 #include <Arduino.h>
 #include <gui.h>
 
+//loading anim
+// Define the segments sequence for animation
+// Segments order: 3,4,5,6,7,15,14,13,12,11 with 4 active segments at each step
+
+// First, define the array of segment values in the specified order
+#define SEGMENT_ORDER {SEG_P3, SEG_P4, SEG_P5, SEG_P6, SEG_P7, SEG_P15, SEG_P14, SEG_P13, SEG_P12, SEG_P11}
+
+// Define the segment combinations (4 consecutive segments) with rollover
+#define SEG_STEP_1 (SEG_P3 | SEG_P4 | SEG_P5 | SEG_P6)     // Segments 3,4,5,6
+#define SEG_STEP_2 (SEG_P4 | SEG_P5 | SEG_P6 | SEG_P7)     // Segments 4,5,6,7
+#define SEG_STEP_3 (SEG_P5 | SEG_P6 | SEG_P7 | SEG_P15)    // Segments 5,6,7,15
+#define SEG_STEP_4 (SEG_P6 | SEG_P7 | SEG_P15 | SEG_P14)   // Segments 6,7,15,14
+#define SEG_STEP_5 (SEG_P7 | SEG_P15 | SEG_P14 | SEG_P13)  // Segments 7,15,14,13
+#define SEG_STEP_6 (SEG_P15 | SEG_P14 | SEG_P13 | SEG_P12) // Segments 15,14,13,12
+#define SEG_STEP_7 (SEG_P14 | SEG_P13 | SEG_P12 | SEG_P11) // Segments 14,13,12,11
+#define SEG_STEP_8 (SEG_P13 | SEG_P12 | SEG_P11 | SEG_P3)  // Segments 13,12,11,3 (rollover)
+#define SEG_STEP_9 (SEG_P12 | SEG_P11 | SEG_P3 | SEG_P4)   // Segments 12,11,3,4 (rollover)
+#define SEG_STEP_10 (SEG_P11 | SEG_P3 | SEG_P4 | SEG_P5)   // Segments 11,3,4,5 (rollover)
+
+// Define an array of steps for easy iteration
+#define SEGMENT_STEPS { \
+    SEG_STEP_1, SEG_STEP_2, SEG_STEP_3, SEG_STEP_4, SEG_STEP_5, \
+    SEG_STEP_6, SEG_STEP_7, SEG_STEP_8, SEG_STEP_9, SEG_STEP_10 \
+}
+
+// Constant array that can be used in the code
+const u32 segmentSteps[] = SEGMENT_STEPS;
+
+// Number of steps in the animation sequence
+#define SEGMENT_STEPS_COUNT (sizeof(segmentSteps) / sizeof(segmentSteps[0]))
+
+// Example usage function for animation
+void animate_segments(uint16_t delay_ms) {
+    static uint8_t current_step = 0;
+    
+    // Set the current step's segments
+    vfd_gui_set_icon(segmentSteps[current_step], 1);
+    
+    // Move to next step with rollover
+    current_step = (current_step + 1) % SEGMENT_STEPS_COUNT;
+    
+    // Delay is handled by the calling code
+}
+
 class Longtext
 {
 private:
@@ -15,9 +59,18 @@ private:
     bool _running = false;
     void (*_endCallback)() = 0;
     void (*_startCallback)() = 0;
+    std::function<void()> _animCallback = nullptr;
     static void _static_callback(Longtext *instance)
     {
         instance->loop();
+    }
+    void text_callback()
+    {
+        vfd_gui_set_text(_text.substring(_index, _index + 6).c_str());
+    }
+    void loading_callback()
+    {
+        vfd_gui_set_icon(segmentSteps[_index], 1);
     }
 
 public:
@@ -33,6 +86,7 @@ public:
         _text += text;
         _frame = frame;
         _length = _text.length();
+        _animCallback = std::bind(&Longtext::text_callback, this);
     }
     void start(uint8_t cycles = 1)
     {
@@ -75,10 +129,12 @@ public:
                 }
                 _index = 0;
             }
-            vfd_gui_set_text(_text.substring(_index, _index + 6).c_str());
+            //vfd_gui_set_text(_text.substring(_index, _index + 6).c_str());
+            _animCallback();
             _index++;
         }
     }
+
     bool is_running()
     {
         return _running;
