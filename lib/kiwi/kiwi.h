@@ -6,11 +6,11 @@
 #include <ESP8266HTTPClient.h>
 #include <LittleFS.h>
 
-class Base64Decoder
+class Kiwi
 {
 public:
-  Base64Decoder();
-  ~Base64Decoder();
+  Kiwi();
+  ~Kiwi();
 
   bool begin();
   bool processApiData(const char *apiUrl);
@@ -23,9 +23,6 @@ public:
   // Set the output filename
   void setOutputFilename(const char *filename) { outputFilename = filename; }
 
-  // Method to randomly select a segment and return it as a string
-  String getRandomSegment();
-
 private:
   // Buffer sizes
   static const int base64BufferSize = 512;
@@ -37,9 +34,9 @@ private:
   int workingBufferPos;
 
   // File handling
-  int segmentCount;
-  const char *outputFilename = "/output.dat"; // Default output filename
-  const char *metadataFilename = "/metadata.txt"; // File to store segment count
+  uint16_t segmentCount;
+  const char *outputFilename = "/kiwi.txt"; // Default output filename
+  const char *jsonFilename = "/data.json";
   File outputFile;
 
   // Track total bytes written to filesystem
@@ -57,8 +54,8 @@ private:
   bool openOutputFile();
   void writeSegmentToFile();
   void closeOutputFile();
-  void saveMetadata(); // New method to save segment count to metadata file
-  void loadMetadata(); // New method to load segment count from metadata file
+  void loadMetadata(); 
+  void updateJsonFile(uint16_t segmentCount); 
 };
 
 #endif

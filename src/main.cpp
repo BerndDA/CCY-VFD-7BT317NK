@@ -31,20 +31,25 @@
 #include <service.h>
 #include <web_server.h>
 #include <WiFiManager.h>
-#include <longtext.h>
-#include <base64_decoder.h>
+#include <animator.h>
+#include <kiwi.h>
+#include <menuhandler.h>
 
 #define MY_NTP_SERVER "at.pool.ntp.org"
 #define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"
+#define LONG_PRESS_TIME 500 // 500ms threshold for long press
+#define SCROLL_INTERVAL 800 // 800ms interval for menu scrolling
+#define MENU_SIZE 6         // Number of menu items
 
 void set_key_listener();
 IRAM_ATTR void handle_key_interrupt();
+IRAM_ATTR void keyISR();
+void scrollMenu();
+void selectMenuItem();
 void getTimeInfo();
-void configModeTimeoutError();
 void set_tick();
 void task_time_refresh_fun();
 void vfd_synchronous();
-void power_handle(u8 state);
 void alarm_handle(u8 state);
 void countdown_handle(u8 state, u8 hour, u8 min, u8 sec);
 
@@ -62,15 +67,25 @@ String time_str = String();
 u8 mh_state = 0;    // Colon display state
 u8 light_level = 1; // Brightness level
 
-const u8 style_max = 3;        // Total number of supported page display styles
 u8 style_page = STYLE_DEFAULT; // Page display style
 
 // Timer initialization
 Ticker task_time_refresh; // Time refresh
 
 WiFiManager wifimanager;
-Longtext longtext;
-Base64Decoder base64Decoder;
+Animator animator;
+Kiwi kiwi;
+MenuHandler menuhandler;
+
+// key habndling
+volatile bool keyPressed = false;
+volatile unsigned long pressStartTime = 0;
+Ticker keyTicker;
+bool isLongPress = false; // Tracks whether long press was detected
+
+// Menu items
+std::vector<MenuItem> menuItems;
+int currentMenuIndex = 0; // Track current menu selection
 
 void setup()
 {
@@ -82,6 +97,7 @@ void setup()
     vfd_gui_init();
     vfd_gui_set_blk_level(light_level);
     vfd_gui_set_text(" boot");
+    animator.start_loading(0x01 | 0x20);
     // Initialize StoreFS
     store_init();
     // Read data
@@ -107,25 +123,27 @@ void setup()
     ArduinoOTA.onStart([]()
                        {
         task_time_refresh.detach();
-        longtext.set_and_start("*OTA*", 120, 100);
+        animator.set_text_and_run("*OTA*", 120, 100);
         vfd_gui_set_pic(PIC_REC, true); });
     ArduinoOTA.onEnd([]()
                      {
-        longtext.stop();
+        animator.stop();
         vfd_gui_set_pic(PIC_REC, false);
         vfd_gui_set_text("reboot");
         ESP.restart(); });
     ArduinoOTA.begin();
-    longtext.onStart([]()
+    animator.onStart([]()
                      { style_page = STYLE_TEXT; });
-    longtext.onEnd([]()
+    animator.onEnd([]()
                    { style_page = STYLE_DEFAULT; });
-    longtext.set_and_start(WiFi.localIP().toString().c_str());
+    animator.stop();
 
-    if (!base64Decoder.isDataAvailable())
+    animator.set_text_and_run(WiFi.localIP().toString().c_str());
+
+    if (!kiwi.isDataAvailable())
     {
-        longtext.set_and_start("Kiwi Loading...", 210, 20);
-        if (base64Decoder.processApiData("https://kiwidesschicksals.de/kiwi2.php"))
+        animator.set_text_and_run("Kiwi Loading...", 210, 20);
+        if (kiwi.processApiData("https://kiwidesschicksals.de/kiwi2.php"))
         {
             Serial.println("Data processing completed successfully!");
         }
@@ -133,8 +151,13 @@ void setup()
         {
             Serial.println("Failed to process API data!");
         }
-        longtext.stop();
+        animator.stop();
     }
+    menuhandler.begin();
+    menuItems = menuhandler.getActiveMenuItems();
+    MenuItem random;
+    random.menu = "random";
+    menuItems.push_back(random);
 }
 
 void loop()
@@ -153,19 +176,14 @@ void loop()
         logic_handler_countdown(&timeinfo, countdown_handle);
     }
     // Power on/off handling
-    logic_handler_auto_power(&timeinfo, power_handle);
     logic_handler_alarm_clock(&timeinfo, alarm_handle);
 }
 
 void set_key_listener()
 {
     pinMode(KEY1, INPUT);
-    pinMode(KEY2, INPUT);
-    pinMode(KEY3, INPUT);
-    // Register key interrupt function
-    attachInterrupt(digitalPinToInterrupt(KEY1), handle_key_interrupt, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(KEY2), handle_key_interrupt, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(KEY3), handle_key_interrupt, CHANGE);
+    //  Register key interrupt function
+    attachInterrupt(digitalPinToInterrupt(KEY1), keyISR, CHANGE);
 }
 
 void getTimeInfo()
@@ -177,104 +195,63 @@ void getTimeInfo()
 //////////////////////////////////////////////////////////////////////////////////
 //// External key interrupt handling
 //////////////////////////////////////////////////////////////////////////////////
-
-IRAM_ATTR void handle_key_interrupt()
+void IRAM_ATTR keyISR()
 {
-    u32 filter_sec = (micros() - key_filter_sec) / 1000;
-    if (filter_sec < 500)
-    {
-        return;
+    if (!digitalRead(KEY1))
+    { // Button Pressed
+        pressStartTime = millis();
+        keyPressed = true;
+        isLongPress = false;                              // Reset long press flag
+        keyTicker.attach_ms(SCROLL_INTERVAL, scrollMenu); // Start scrolling every 500ms
     }
-    if (!power)
-    {
-        // If in sleep mode, trigger the key to power on directly
-        power_handle(1);
-        key_filter_sec = micros();
-        return;
-    }
-    if (countdounw)
-    {
-        // If in countdown mode, click the key to cancel the countdown
-        countdounw = 0;
-        logic_handler_countdown_stop();
-        key_filter_sec = micros();
-        return;
-    }
-    if (digitalRead(KEY3) && !digitalRead(KEY1) && !digitalRead(KEY2))
-    {
-        // WIFI settings on or off
-        if (WiFi.isConnected())
+    else
+    {                       // Button Released
+        keyTicker.detach(); // Stop menu scrolling
+        keyPressed = false;
+        style_page = STYLE_DEFAULT;
+        unsigned long pressDuration = millis() - pressStartTime;
+        if (pressDuration < LONG_PRESS_TIME && !isLongPress)
         {
-            // If on, turn off
-            web_stop();
+            selectMenuItem(); // Short press action
         }
-        else
+        if (isLongPress)
         {
-            // If off, turn on
-            // Turning on is time-consuming and also needs to check if the network is configured. The whole process is actually initialized in setup. It is better to restart the ESP.
-            ESP.restart();
-        }
-    }
-    else if (!digitalRead(KEY1))
-    {
-        String kiwi = base64Decoder.getRandomSegment();
-        kiwi = "kiwi sagt...      " + kiwi;
-        kiwi.replace("ä", "ae");
-        kiwi.replace("ö", "oe");
-        kiwi.replace("ü", "ue");
-        kiwi.replace("Ä", "Ae");
-        kiwi.replace("Ö", "Oe");
-        kiwi.replace("Ü", "Ue");
-        kiwi.replace("ß", "ss");
-        longtext.set_and_start(kiwi.c_str(), 210);
-        // key_last_pin = KEY1;
-        // k1_last_time = 0;
-        // Serial.println("Light-");
-        // light_level = light_level == 1 ? 7 : 1;
-        // vfd_gui_set_blk_level(light_level);
-    }
-    else if (!digitalRead(KEY2))
-    {
-        key_last_pin = KEY2;
-        k1_last_time = 0;
-        Serial.println("Light+");
-        if (light_level == 2)
-        {
-            light_level = 7;
-        }
-        else if (light_level == 1)
-        {
-            light_level = 2;
-        }
-        vfd_gui_set_blk_level(light_level);
-    }
-    else if (!digitalRead(KEY3))
-    {
-        key_last_pin = KEY3;
-        Serial.println("FN");
-        style_page = (style_page + 1) % style_max;
-        k1_last_time = micros();
-        longtext.stop();
-    }
-    else if (digitalRead(KEY3))
-    {
-        // High
-        if (digitalRead(KEY1) && digitalRead(KEY2) && key_last_pin == KEY3)
-        {
-            u32 sec = (micros() - k1_last_time) / 1000;
-            if (k1_last_time != 0 && sec > 2000)
+            for (int i = 0; i < 4; i++)
             {
-                Serial.println("Long press operation triggered");
-                // If long press for 2 seconds, perform WIFI reset operation
-                ESP.restart();
-            }
-            else
-            {
-                k1_last_time = 0;
+                vfd_gui_set_text(" ");
+                delay(100);
+                vfd_gui_set_text(menuItems[currentMenuIndex].menu.c_str());
+                delay(100);
             }
         }
     }
-    key_filter_sec = micros();
+}
+
+void scrollMenu()
+{
+    if (keyPressed && millis() - pressStartTime >= LONG_PRESS_TIME)
+    {
+        animator.stop();
+        style_page = STYLE_MENU;
+        isLongPress = true; // Mark as long press
+        currentMenuIndex = (currentMenuIndex + 1) % menuItems.size();
+        Serial.println(menuItems.at(currentMenuIndex).menu);
+        vfd_gui_set_text(menuItems.at(currentMenuIndex).menu.c_str());
+    }
+}
+
+void selectMenuItem()
+{
+    Serial.println("Short Press: Select Menu Item");
+    //if last item is selected, random record is selected
+    int menuitem = currentMenuIndex;
+    if (currentMenuIndex == menuItems.size() - 1)
+    {
+        menuitem = random(0, menuItems.size() - 1);
+    }
+    // Your short press action logic here
+    String msg = menuhandler.getRandomRecord(menuItems.at(menuitem));
+    animator.set_text_and_run(msg.c_str(), 210);
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -289,7 +266,7 @@ void task_time_refresh_fun()
         if (timeinfo.tm_sec % 20 == 0)
         {
             strftime(buffer, sizeof(buffer), "%A %d %B %Y", &timeinfo);
-            longtext.set_and_start(buffer, 210);
+            animator.set_text_and_run(buffer, 210);
             return;
         }
         strftime(buffer, sizeof(buffer), "%H%M%S", &timeinfo);
@@ -316,56 +293,6 @@ void set_tick()
 
 void vfd_synchronous()
 {
-    if (style_page == STYLE_CUSTOM_1)
-    {
-        static char long_text[50];
-        if (strlen(setting_obj.custom_long_text) != 0 &&
-            strcmp(long_text, setting_obj.custom_long_text))
-        {
-            delay(50);
-            memset(long_text, 0, sizeof(long_text));
-            memcpy(long_text, setting_obj.custom_long_text,
-                   sizeof(setting_obj.custom_long_text));
-        }
-        longtext.set_and_start(long_text, setting_obj.custom_long_text_frame, 2);
-    }
-    else if (style_page == STYLE_CUSTOM_2)
-    {
-        if (WiFi.isConnected())
-        {
-            longtext.set_and_start(WiFi.localIP().toString().c_str(), 210, 1);
-        }
-        else
-        {
-            longtext.set_and_start("WiFi not connected", 210, 1);
-        }
-    }
-}
-
-/**
- * Handle power on/off
- */
-void power_handle(u8 state)
-{
-    if (power == state)
-    {
-        return;
-    }
-    if (!state)
-    {
-        countdounw = 0;
-        logic_handler_countdown_stop();
-        web_stop();
-        task_time_refresh.detach();
-        longtext.stop();
-        vfd_gui_stop();
-    }
-    else
-    {
-        style_page = STYLE_DEFAULT;
-        vfd_gui_init();
-    }
-    power = state;
 }
 
 /*
@@ -399,7 +326,7 @@ void countdown_handle(u8 state, u8 hour, u8 min, u8 sec)
     if (countdounw)
     {
         task_time_refresh.detach();
-        longtext.stop();
+        animator.stop();
         time_str.clear();
         // Concatenate time string format: HH:mm:ss
         time_str += (hour < 10 ? "0" : "");

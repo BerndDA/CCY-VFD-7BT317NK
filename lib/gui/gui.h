@@ -96,6 +96,8 @@ void vfd_gui_clear();
  */
 void vfd_gui_set_one_text(size_t index, char oneChar);
 
+void vfd_gui_set_one_pattern(size_t index, u32 pattern);
+
 /**
  * Display a string of text starting from position 0.
  * (Automatically clear and overwrite display, convenient to avoid calling clear each time to prevent screen flicker)

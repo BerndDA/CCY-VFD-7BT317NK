@@ -85,6 +85,17 @@ void vfd_gui_set_one_text(size_t index, char oneChar)
     ptSetDisplayLight(lightOff, lightLevel); // command4
 }
 
+void vfd_gui_set_one_pattern(size_t index, u32 pattern)
+{
+    setModeWirteDisplayMode(0); // command2
+    uint8_t arr[3];
+    arr[0] = (pattern >> 16) & 0xFF;
+    arr[1] = (pattern >> 8) & 0xFF;
+    arr[2] = pattern & 0xFF;
+    sendDigAndData(index * 3, arr, 3);       // command3
+    ptSetDisplayLight(lightOff, lightLevel); // command4
+}
+
 void vfd_gui_set_icon(u32 buf, u8 is_save_state)
 {
     if (current_icon_flag == buf)

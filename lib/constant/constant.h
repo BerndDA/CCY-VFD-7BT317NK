@@ -54,6 +54,7 @@
 #define STYLE_CUSTOM_1 1  // Long text scrolling
 #define STYLE_CUSTOM_2 2  // WIFI IP address
 #define STYLE_TEXT 3      // Text display
+#define STYLE_MENU 4      // Menu display
 
 #define NTP3 "0.europe.pool.ntp.org"
 // #define NTP2 "cn.ntp.org.cn"

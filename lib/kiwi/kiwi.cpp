@@ -1,21 +1,22 @@
-#include "base64_decoder.h"
-#include "base64.hpp" // Include your custom base64 utilities
+#include "kiwi.h"
+#include "base64.hpp"    // Include your custom base64 utilities
+#include <ArduinoJson.h> // Include ArduinoJson library
 
-Base64Decoder::Base64Decoder() : workingBuffer(NULL),
-                                 workingBufferPos(0),
-                                 segmentCount(0),
-                                 totalBytesWritten(0)
+Kiwi::Kiwi() : workingBuffer(NULL),
+               workingBufferPos(0),
+               segmentCount(0),
+               totalBytesWritten(0)
 {
 }
 
-Base64Decoder::~Base64Decoder()
+Kiwi::~Kiwi()
 {
   if (workingBuffer != NULL)
   {
     free(workingBuffer);
     workingBuffer = NULL;
   }
-  
+
   // Ensure the file is closed
   if (outputFile)
   {
@@ -23,12 +24,12 @@ Base64Decoder::~Base64Decoder()
   }
 }
 
-bool Base64Decoder::begin()
+bool Kiwi::begin()
 {
   // Reset total bytes written
   totalBytesWritten = 0;
   segmentCount = 0;
-  
+
   // Allocate working buffer
   workingBuffer = (uint8_t *)malloc(maxWorkingBufferSize);
   if (workingBuffer == NULL)
@@ -53,7 +54,7 @@ bool Base64Decoder::begin()
   return true;
 }
 
-bool Base64Decoder::openOutputFile()
+bool Kiwi::openOutputFile()
 {
   // Open file for writing (will create or truncate existing file)
   outputFile = LittleFS.open(outputFilename, "w");
@@ -62,64 +63,79 @@ bool Base64Decoder::openOutputFile()
     Serial.printf("Failed to open output file %s for writing\n", outputFilename);
     return false;
   }
-  
+
   Serial.printf("Opened output file: %s\n", outputFilename);
   return true;
 }
 
-void Base64Decoder::closeOutputFile()
+void Kiwi::closeOutputFile()
 {
   if (outputFile)
   {
     outputFile.close();
     Serial.printf("Closed output file: %s\n", outputFilename);
-    
-    // Save metadata after closing the file
-    saveMetadata();
-  }
-}
 
-// New method to save metadata (segment count)
-void Base64Decoder::saveMetadata()
-{
-  File metadataFile = LittleFS.open(metadataFilename, "w");
-  if (!metadataFile)
-  {
-    Serial.printf("Failed to open metadata file %s for writing\n", metadataFilename);
-    return;
+    // Save metadata after closing the file
+    updateJsonFile(segmentCount);
   }
-  
-  metadataFile.println(segmentCount);
-  metadataFile.close();
-  
-  Serial.printf("Saved metadata: %d segments\n", segmentCount);
 }
 
 // New method to load metadata (segment count)
-void Base64Decoder::loadMetadata()
+// Method to load metadata (segment count) from JSON file
+void Kiwi::loadMetadata()
 {
-  if (!LittleFS.exists(metadataFilename))
+  // Check if JSON file exists
+  if (!LittleFS.exists(jsonFilename))
   {
-    Serial.printf("Metadata file %s not found, using current segment count: %d\n", 
-                 metadataFilename, segmentCount);
+    Serial.printf("JSON file %s not found, using current segment count: %d\n", 
+                 jsonFilename, segmentCount);
     return;
   }
   
-  File metadataFile = LittleFS.open(metadataFilename, "r");
-  if (!metadataFile)
+  // Open JSON file for reading
+  File jsonFile = LittleFS.open(jsonFilename, "r");
+  if (!jsonFile)
   {
-    Serial.printf("Failed to open metadata file %s for reading\n", metadataFilename);
+    Serial.printf("Failed to open JSON file %s for reading\n", jsonFilename);
     return;
   }
   
-  String countStr = metadataFile.readStringUntil('\n');
-  metadataFile.close();
+  // Read the entire file into a string
+  String jsonString = jsonFile.readString();
+  jsonFile.close();
   
-  segmentCount = countStr.toInt();
-  Serial.printf("Loaded metadata: %d segments\n", segmentCount);
+  // Allocate a buffer for the JSON document
+  const size_t capacity = JSON_ARRAY_SIZE(5) + 5 * JSON_OBJECT_SIZE(3) + jsonString.length();
+  DynamicJsonDocument doc(capacity);
+  
+  // Parse the JSON string
+  DeserializationError error = deserializeJson(doc, jsonString);
+  if (error)
+  {
+    Serial.printf("Failed to parse JSON: %s\n", error.c_str());
+    return;
+  }
+  
+  // Find the "kiwi" entry and get its "numrec" value
+  bool kiwiFound = false;
+  for (JsonVariant item : doc.as<JsonArray>())
+  {
+    if (item["menu"] == "kiwi")
+    {
+      segmentCount = item["numrec"];
+      kiwiFound = true;
+      Serial.printf("Loaded segment count from JSON: %d segments\n", segmentCount);
+      break;
+    }
+  }
+  
+  if (!kiwiFound)
+  {
+    Serial.println("Warning: 'kiwi' entry not found in JSON");
+  }
 }
 
-bool Base64Decoder::processApiData(const char *apiUrl)
+bool Kiwi::processApiData(const char *apiUrl)
 {
   this->begin();
   WiFiClientSecure client;
@@ -161,7 +177,7 @@ bool Base64Decoder::processApiData(const char *apiUrl)
 
       Serial.printf("Stream processing complete! Total bytes written: %u KB\n", totalBytesWritten / 1024);
       Serial.printf("Total segments written: %d\n", segmentCount);
-      
+
       http.end();
       if (workingBuffer != NULL)
       {
@@ -189,13 +205,13 @@ bool Base64Decoder::processApiData(const char *apiUrl)
   return false;
 }
 
-bool Base64Decoder::isDataAvailable()
+bool Kiwi::isDataAvailable()
 {
   this->loadMetadata();
   return segmentCount > 0;
 }
 
-void Base64Decoder::processStream(WiFiClient *stream)
+void Kiwi::processStream(WiFiClient *stream)
 {
   int base64Pos = 0;
   int totalProcessed = 0;
@@ -360,7 +376,7 @@ void Base64Decoder::processStream(WiFiClient *stream)
         // Print progress every ~10KB of base64 data
         if (totalProcessed % 10240 < 512)
         {
-          Serial.printf("Processed %d bytes of base64 data, written %u KB to filesystem\n", 
+          Serial.printf("Processed %d bytes of base64 data, written %u KB to filesystem\n",
                         totalProcessed, totalBytesWritten / 1024);
         }
       }
@@ -393,7 +409,7 @@ void Base64Decoder::processStream(WiFiClient *stream)
   Serial.printf("Total segments written: %d\n", segmentCount);
 }
 
-void Base64Decoder::processDecodedData(char *data, int length)
+void Kiwi::processDecodedData(char *data, int length)
 {
   // Process each byte in the decoded data
   for (int i = 0; i < length; i++)
@@ -428,7 +444,7 @@ void Base64Decoder::processDecodedData(char *data, int length)
   }
 }
 
-void Base64Decoder::writeSegmentToFile()
+void Kiwi::writeSegmentToFile()
 {
   if (workingBufferPos == 0 || !outputFile)
   {
@@ -437,9 +453,10 @@ void Base64Decoder::writeSegmentToFile()
 
   // Write the segment data
   size_t bytesWritten = outputFile.write(workingBuffer, workingBufferPos);
-  
+
   // Write a newline character after the segment
-  if (bytesWritten == workingBufferPos) {
+  if (bytesWritten == workingBufferPos)
+  {
     outputFile.write('\n');
     bytesWritten++; // Include the newline in the count
   }
@@ -457,7 +474,7 @@ void Base64Decoder::writeSegmentToFile()
   }
 }
 
-void Base64Decoder::clearFiles()
+void Kiwi::clearFiles()
 {
   Serial.println("Clearing output file...");
   // Close file if it's open
@@ -465,73 +482,96 @@ void Base64Decoder::clearFiles()
   {
     outputFile.close();
   }
-  
+
   // Remove the output file
   if (LittleFS.exists(outputFilename))
   {
     LittleFS.remove(outputFilename);
     Serial.printf("Removed file: %s\n", outputFilename);
   }
-  
-  // Remove the metadata file
-  if (LittleFS.exists(metadataFilename))
-  {
-    LittleFS.remove(metadataFilename);
-    Serial.printf("Removed file: %s\n", metadataFilename);
-  }
-  
+
   Serial.println("Files cleared!");
-  
+
   // Reset counters
   totalBytesWritten = 0;
   segmentCount = 0;
+  updateJsonFile(segmentCount);
 }
 
-String Base64Decoder::getRandomSegment()
+// New method to update the JSON file
+void Kiwi::updateJsonFile(uint16_t segmentCount)
 {
-  // Load metadata to ensure we have the latest segment count
-  loadMetadata();
-  
-  // Return empty string if no segments or file doesn't exist
-  if (segmentCount == 0 || !LittleFS.exists(outputFilename))
+
+  // Check if JSON file exists
+  if (!LittleFS.exists(jsonFilename))
   {
-    Serial.println("No segments available to select");
-    return "";
+    Serial.printf("JSON file %s not found, cannot update\n", jsonFilename);
+    return;
   }
-  
-  // Generate a random segment number between 1 and segmentCount
-  int randomSegmentNum = random(1, segmentCount + 1);
-  Serial.printf("Randomly selected segment #%d of %d\n", randomSegmentNum, segmentCount);
-  
-  // Open the file for reading
-  File file = LittleFS.open(outputFilename, "r");
-  if (!file)
+
+  Serial.printf("Updating JSON file %s with new segment count: %d\n", jsonFilename, segmentCount);
+
+  // Open JSON file for reading
+  File jsonFile = LittleFS.open(jsonFilename, "r");
+  if (!jsonFile)
   {
-    Serial.printf("Failed to open file %s for reading\n", outputFilename);
-    return "";
+    Serial.printf("Failed to open JSON file %s for reading\n", jsonFilename);
+    return;
   }
-  
-  String segment = "";
-  int currentSegment = 0;
-  
-  // Read the file line by line (each line is a segment)
-  while (file.available())
+
+  // Read the entire file into a string
+  String jsonString = jsonFile.readString();
+  jsonFile.close();
+
+  // Allocate a buffer for the JSON document
+  // Size calculation: allow space for the JSON structure based on input size
+  const size_t capacity = JSON_ARRAY_SIZE(5) + 5 * JSON_OBJECT_SIZE(3) + jsonString.length();
+  DynamicJsonDocument doc(capacity);
+
+  // Parse the JSON string
+  DeserializationError error = deserializeJson(doc, jsonString);
+  if (error)
   {
-    String line = file.readStringUntil('\n');
-    currentSegment++;
-    
-    if (currentSegment == randomSegmentNum)
+    Serial.printf("Failed to parse JSON: %s\n", error.c_str());
+    return;
+  }
+
+  // Find and update the "kiwi" entry
+  bool kiwiFound = false;
+  for (JsonVariant item : doc.as<JsonArray>())
+  {
+    if (item["menu"] == "kiwi")
     {
-      segment = line;
+      item["numrec"] = segmentCount;
+      kiwiFound = true;
+      Serial.println("Updated 'kiwi' entry in JSON");
       break;
     }
   }
-  
-  file.close();
-  
-  // Trim any trailing whitespace or newline characters
-  segment.trim();
-  
-  Serial.printf("Retrieved segment of length %d bytes\n", segment.length());
-  return segment;
+
+  if (!kiwiFound)
+  {
+    Serial.println("Warning: 'kiwi' entry not found in JSON");
+    return;
+  }
+
+  // Open the file for writing
+  jsonFile = LittleFS.open(jsonFilename, "w");
+  if (!jsonFile)
+  {
+    Serial.printf("Failed to open JSON file %s for writing\n", jsonFilename);
+    return;
+  }
+
+  // Serialize the modified JSON back to the file
+  if (serializeJson(doc, jsonFile) == 0)
+  {
+    Serial.println("Failed to write JSON to file");
+  }
+  else
+  {
+    Serial.println("Successfully updated JSON file");
+  }
+
+  jsonFile.close();
 }

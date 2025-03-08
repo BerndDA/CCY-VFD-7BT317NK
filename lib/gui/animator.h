@@ -2,9 +2,9 @@
 #include <Arduino.h>
 #include <gui.h>
 
-//loading anim
-// Define the segments sequence for animation
-// Segments order: 3,4,5,6,7,15,14,13,12,11 with 4 active segments at each step
+// loading anim
+//  Define the segments sequence for animation
+//  Segments order: 3,4,5,6,7,15,14,13,12,11 with 4 active segments at each step
 
 // First, define the array of segment values in the specified order
 #define SEGMENT_ORDER {SEG_P3, SEG_P4, SEG_P5, SEG_P6, SEG_P7, SEG_P15, SEG_P14, SEG_P13, SEG_P12, SEG_P11}
@@ -22,10 +22,9 @@
 #define SEG_STEP_10 (SEG_P11 | SEG_P3 | SEG_P4 | SEG_P5)   // Segments 11,3,4,5 (rollover)
 
 // Define an array of steps for easy iteration
-#define SEGMENT_STEPS { \
+#define SEGMENT_STEPS {                                         \
     SEG_STEP_1, SEG_STEP_2, SEG_STEP_3, SEG_STEP_4, SEG_STEP_5, \
-    SEG_STEP_6, SEG_STEP_7, SEG_STEP_8, SEG_STEP_9, SEG_STEP_10 \
-}
+    SEG_STEP_6, SEG_STEP_7, SEG_STEP_8, SEG_STEP_9, SEG_STEP_10}
 
 // Constant array that can be used in the code
 const u32 segmentSteps[] = SEGMENT_STEPS;
@@ -34,19 +33,20 @@ const u32 segmentSteps[] = SEGMENT_STEPS;
 #define SEGMENT_STEPS_COUNT (sizeof(segmentSteps) / sizeof(segmentSteps[0]))
 
 // Example usage function for animation
-void animate_segments(uint16_t delay_ms) {
+void animate_segments(uint16_t delay_ms)
+{
     static uint8_t current_step = 0;
-    
+
     // Set the current step's segments
     vfd_gui_set_icon(segmentSteps[current_step], 1);
-    
+
     // Move to next step with rollover
     current_step = (current_step + 1) % SEGMENT_STEPS_COUNT;
-    
+
     // Delay is handled by the calling code
 }
 
-class Longtext
+class Animator
 {
 private:
     Ticker _ticker;
@@ -56,11 +56,12 @@ private:
     uint8_t _length = 0;
     uint8_t _cycles = 1;
     uint8_t _currentCycle = 1;
+    uint8_t _positions = 0;
     bool _running = false;
     void (*_endCallback)() = 0;
     void (*_startCallback)() = 0;
     std::function<void()> _animCallback = nullptr;
-    static void _static_callback(Longtext *instance)
+    static void _static_callback(Animator *instance)
     {
         instance->loop();
     }
@@ -70,15 +71,30 @@ private:
     }
     void loading_callback()
     {
-        vfd_gui_set_icon(segmentSteps[_index], 1);
+        for (uint8_t i = 0; i < 6; i++) // Assuming 6 possible positions
+        {
+            if (_positions & (1 << i)) // Check if bit i is set
+                vfd_gui_set_one_pattern(i, segmentSteps[_index]);
+        }
     }
 
 public:
-    Longtext() {}
-    void set_and_start(const char *text, uint8_t frame = 210, uint8_t cycles = 1)
+    Animator() {}
+    void set_text_and_run(const char *text, uint8_t frame = 210, uint8_t cycles = 1)
     {
         set_text(text, frame);
         start(cycles);
+    }
+    void start_loading(uint8_t positions)
+    {
+        if (_running)
+            stop();
+        _index = 0;
+        _length = SEGMENT_STEPS_COUNT - 1;
+        _frame = 80;
+        _positions = positions;
+        _animCallback = std::bind(&Animator::loading_callback, this);
+        start(255);
     }
     void set_text(const char *text, uint8_t frame = 210)
     {
@@ -86,7 +102,7 @@ public:
         _text += text;
         _frame = frame;
         _length = _text.length();
-        _animCallback = std::bind(&Longtext::text_callback, this);
+        _animCallback = std::bind(&Animator::text_callback, this);
     }
     void start(uint8_t cycles = 1)
     {
@@ -96,9 +112,9 @@ public:
         _cycles = cycles;
         _currentCycle = 1;
         _running = true;
-        if(_startCallback)
+        if (_startCallback)
             _startCallback();
-        _ticker.attach_ms(_frame, std::bind(&Longtext::_static_callback, this));
+        _ticker.attach_ms(_frame, std::bind(&Animator::_static_callback, this));
     }
     void stop()
     {
@@ -129,7 +145,7 @@ public:
                 }
                 _index = 0;
             }
-            //vfd_gui_set_text(_text.substring(_index, _index + 6).c_str());
+            // vfd_gui_set_text(_text.substring(_index, _index + 6).c_str());
             _animCallback();
             _index++;
         }
