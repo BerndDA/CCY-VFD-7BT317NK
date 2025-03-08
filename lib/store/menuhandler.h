@@ -6,13 +6,15 @@
 #include <ArduinoJson.h>
 #include <vector>
 
+// Structure to hold menu item information
 struct MenuItem {
   String menu;   // Menu identifier
   String intro;  // Introduction text
-  String file;
+  String file;   // Associated file
   int numrec;    // Number of records
 };
 
+// Class for handling menu operations
 class MenuHandler {
 public:
   MenuHandler();
@@ -27,13 +29,19 @@ public:
   String getRandomRecord(const MenuItem& item);
 
 private:
-  const char* jsonFilename = "/data.json"; // Default JSON filename
+  const char* jsonFilename; // JSON filename
   
   // Helper method to parse JSON file
   bool parseJsonFile(DynamicJsonDocument& doc);
   
-  // Helper method to get output filename for a menu item
-  String getOutputFilename(const String& menuId);
+  // Create a MenuItem object from JSON data
+  MenuItem createMenuItemFromJson(JsonVariant& item);
+  
+  // Read a specific record from a file
+  String readRecordFromFile(const MenuItem& item, int recordNum);
+  
+  // Replace special characters with ASCII equivalents
+  String replaceUmlautsAndSpecialChars(const String& text);
 };
 
 #endif // MENU_HANDLER_H
