@@ -85,7 +85,7 @@ bool isLongPress = false; // Tracks whether long press was detected
 
 // Menu items
 std::vector<MenuItem> menuItems;
-int currentMenuIndex = 0; // Track current menu selection
+u8 currentMenuIndex = 0; // Track current menu selection
 
 void setup()
 {
@@ -102,19 +102,6 @@ void setup()
     store_init();
     // Read data
     store_get_setting(&setting_obj);
-    FSInfo fs_info;
-    if (LittleFS.info(fs_info))
-    {
-        Serial.println("LittleFS Storage Information:");
-        Serial.printf("Total space:    %d bytes\n", fs_info.totalBytes);
-        Serial.printf("Used space:     %d bytes\n", fs_info.usedBytes);
-        Serial.printf("Available:      %d bytes\n", fs_info.totalBytes - fs_info.usedBytes);
-        Serial.printf("Usage:          %.2f%%\n", (float)fs_info.usedBytes / fs_info.totalBytes * 100);
-    }
-    else
-    {
-        Serial.println("Failed to get LittleFS info");
-    }
     wifimanager.autoConnect("VFD-03");
     vfd_gui_set_pic(PIC_WIFI, true);
     web_setup();
@@ -136,9 +123,15 @@ void setup()
                      { style_page = STYLE_TEXT; });
     animator.onEnd([]()
                    { style_page = STYLE_DEFAULT; });
-    animator.stop();
 
-    animator.set_text_and_run(WiFi.localIP().toString().c_str());
+    menuhandler.begin();
+    menuItems = menuhandler.getActiveMenuItems();
+    MenuItem random;
+    random.menu = "random";
+    menuItems.insert(menuItems.begin(), random);
+    MenuItem upd;
+    upd.menu = "update";
+    menuItems.push_back(upd);
 
     if (!kiwi.isDataAvailable())
     {
@@ -151,13 +144,9 @@ void setup()
         {
             Serial.println("Failed to process API data!");
         }
-        animator.stop();
+        ESP.restart();
     }
-    menuhandler.begin();
-    menuItems = menuhandler.getActiveMenuItems();
-    MenuItem random;
-    random.menu = "random";
-    menuItems.push_back(random);
+    animator.set_text_and_run(WiFi.localIP().toString().c_str(), 210);
 }
 
 void loop()
@@ -243,11 +232,24 @@ void scrollMenu()
 void selectMenuItem()
 {
     Serial.println("Short Press: Select Menu Item");
-    //if last item is selected, random record is selected
-    int menuitem = currentMenuIndex;
+    // if last item is selected, random record is selected
+    size_t menuitem = currentMenuIndex;
+    if (currentMenuIndex == 0)
+    {
+        menuitem = random(1, menuItems.size() - 1);
+    }
+    // check for last item
     if (currentMenuIndex == menuItems.size() - 1)
     {
-        menuitem = random(0, menuItems.size() - 1);
+        Dir dir = LittleFS.openDir("/");
+        while (dir.next())
+        {
+            String fileName = dir.fileName();
+            Serial.print("Deleting file: ");
+            Serial.println(fileName);
+            LittleFS.remove(fileName);
+        }
+        ESP.restart();
     }
     // Your short press action logic here
     String msg = menuhandler.getRandomRecord(menuItems.at(menuitem));

@@ -31,7 +31,7 @@ private:
   // Working buffer for accumulating decoded data until we find a separator
   static const int maxWorkingBufferSize = 1024; // 1KB buffer
   uint8_t *workingBuffer;
-  int workingBufferPos;
+  size_t workingBufferPos;
 
   // File handling
   uint16_t segmentCount;
@@ -47,7 +47,7 @@ private:
   char decodedBuffer[decodedBufferSize + 1]; // +1 for null terminator
 
   // Separator character
-  static const char SEPARATOR = '§';
+  static const char SEPARATOR = '\xA7';
 
   void processStream(WiFiClient *stream);
   void processDecodedData(char *data, int length);

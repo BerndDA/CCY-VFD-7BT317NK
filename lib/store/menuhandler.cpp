@@ -1,4 +1,8 @@
 #include "menuhandler.h"
+#include "filedownload.h"
+#include <Arduino.h>
+
+#define BASE_URL "https://raw.githubusercontent.com/BerndDA/CCY-VFD-7BT317NK/refs/heads/main/assets"
 
 MenuHandler::MenuHandler()
 {
@@ -12,14 +16,15 @@ bool MenuHandler::begin()
         Serial.println("Failed to mount LittleFS");
         return false;
     }
-
     // Check if JSON file exists
     if (!LittleFS.exists(jsonFilename))
     {
-        Serial.printf("JSON file %s not found\n", jsonFilename);
-        return false;
+        if (!download_file((String(BASE_URL) + String(jsonFilename)).c_str(), jsonFilename))
+        {
+            Serial.printf("JSON file %s not found\n", jsonFilename);
+            return false;
+        }
     }
-
     return true;
 }
 
@@ -62,23 +67,23 @@ std::vector<MenuItem> MenuHandler::getActiveMenuItems()
         return activeItems; // Return empty vector on error
     }
 
-    // Find all menu items with at least one record
     for (JsonVariant item : doc.as<JsonArray>())
     {
         int numrec = item["numrec"];
-        if (numrec > 0)
+
+        MenuItem menuItem;
+        menuItem.menu = item["menu"].as<String>();
+        int filler = (6 - menuItem.menu.length()) / 2;
+        for (int i = 0; i < filler; i++)
         {
-            MenuItem menuItem;
-            menuItem.menu = item["menu"].as<String>();
-            int filler = (6 - menuItem.menu.length()) / 2;
-            for (int i = 0; i < filler; i++)
-            {
-                menuItem.menu = " " + menuItem.menu;
-            }
-            menuItem.intro = item["intro"].as<String>();
-            menuItem.numrec = numrec;
-            menuItem.file = item["menu"].as<String>() + ".txt";
-            activeItems.push_back(menuItem);
+            menuItem.menu = " " + menuItem.menu;
+        }
+        menuItem.intro = item["intro"].as<String>();
+        menuItem.numrec = numrec;
+        menuItem.file = item["menu"].as<String>() + ".txt";
+        activeItems.push_back(menuItem);
+        if(!LittleFS.exists(menuItem.file)){
+            download_file((String(BASE_URL) + String("/") + menuItem.file).c_str(), menuItem.file.c_str());
         }
     }
     return activeItems;
@@ -104,7 +109,6 @@ String MenuHandler::getRandomRecord(const MenuItem &item)
 
     // Get the number of records for this menu item
     int recordCount = item.numrec;
-
 
     // Return empty string if no records
     if (recordCount <= 0)
