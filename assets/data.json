@@ -21,12 +21,12 @@
     },
     {
         "menu": "scrum",
-        "intro": "team sagt...",
+        "intro": "team meint...",
         "numrec": 7
     },
     {
-        "menu": "gk",
-        "intro": "Glaskugel sagt...",
+        "menu": "orakel",
+        "intro": "Glaskugel zeigt...",
         "numrec": 20
     },
     {
