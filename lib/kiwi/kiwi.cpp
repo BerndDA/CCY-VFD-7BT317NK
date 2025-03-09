@@ -80,7 +80,6 @@ void Kiwi::closeOutputFile()
   }
 }
 
-// New method to load metadata (segment count)
 // Method to load metadata (segment count) from JSON file
 void Kiwi::loadMetadata()
 {
@@ -103,11 +102,8 @@ void Kiwi::loadMetadata()
   // Read the entire file into a string
   String jsonString = jsonFile.readString();
   jsonFile.close();
-  
-  // Allocate a buffer for the JSON document
-  const size_t capacity = JSON_ARRAY_SIZE(5) + 5 * JSON_OBJECT_SIZE(3) + jsonString.length();
-  DynamicJsonDocument doc(capacity);
-  
+
+  JsonDocument doc;
   // Parse the JSON string
   DeserializationError error = deserializeJson(doc, jsonString);
   if (error)
@@ -135,7 +131,7 @@ void Kiwi::loadMetadata()
   }
 }
 
-bool Kiwi::processApiData(const char *apiUrl)
+bool Kiwi::processApiData()
 {
   this->begin();
   WiFiClientSecure client;
@@ -147,7 +143,7 @@ bool Kiwi::processApiData(const char *apiUrl)
   Serial.println("Making API request...");
 
   // Make the request
-  http.begin(client, apiUrl);
+  http.begin(client, KIWI_API_URL);
   int httpCode = http.GET();
 
   if (httpCode > 0)
@@ -474,30 +470,6 @@ void Kiwi::writeSegmentToFile()
   }
 }
 
-void Kiwi::clearFiles()
-{
-  Serial.println("Clearing output file...");
-  // Close file if it's open
-  if (outputFile)
-  {
-    outputFile.close();
-  }
-
-  // Remove the output file
-  if (LittleFS.exists(outputFilename))
-  {
-    LittleFS.remove(outputFilename);
-    Serial.printf("Removed file: %s\n", outputFilename);
-  }
-
-  Serial.println("Files cleared!");
-
-  // Reset counters
-  totalBytesWritten = 0;
-  segmentCount = 0;
-  updateJsonFile(segmentCount);
-}
-
 // New method to update the JSON file
 void Kiwi::updateJsonFile(uint16_t segmentCount)
 {
@@ -523,10 +495,8 @@ void Kiwi::updateJsonFile(uint16_t segmentCount)
   String jsonString = jsonFile.readString();
   jsonFile.close();
 
-  // Allocate a buffer for the JSON document
-  // Size calculation: allow space for the JSON structure based on input size
-  const size_t capacity = JSON_ARRAY_SIZE(5) + 5 * JSON_OBJECT_SIZE(3) + jsonString.length();
-  DynamicJsonDocument doc(capacity);
+  // Allocate the JSON document
+  JsonDocument doc;
 
   // Parse the JSON string
   DeserializationError error = deserializeJson(doc, jsonString);

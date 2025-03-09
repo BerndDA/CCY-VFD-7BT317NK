@@ -3,8 +3,9 @@
 #include <Arduino.h>
 
 #define BASE_URL "https://raw.githubusercontent.com/BerndDA/CCY-VFD-7BT317NK/refs/heads/main/assets"
+#define DATA_FILENAME "/data.json"
 
-MenuHandler::MenuHandler() : jsonFilename("/data.json") {
+MenuHandler::MenuHandler() : jsonFilename(DATA_FILENAME) {
 }
 
 bool MenuHandler::begin() {
@@ -26,7 +27,7 @@ bool MenuHandler::begin() {
     return true;
 }
 
-bool MenuHandler::parseJsonFile(DynamicJsonDocument &doc) {
+bool MenuHandler::parseJsonFile(JsonDocument &doc) {
     // Open JSON file for reading
     File jsonFile = LittleFS.open(jsonFilename, "r");
     if (!jsonFile) {
@@ -51,9 +52,7 @@ bool MenuHandler::parseJsonFile(DynamicJsonDocument &doc) {
 std::vector<MenuItem> MenuHandler::getActiveMenuItems() {
     std::vector<MenuItem> activeItems;
 
-    // Allocate a buffer for the JSON document
-    const size_t capacity = JSON_ARRAY_SIZE(10) + 10 * JSON_OBJECT_SIZE(3) + 256;
-    DynamicJsonDocument doc(capacity);
+    JsonDocument doc;
 
     // Parse the JSON file
     if (!parseJsonFile(doc)) {

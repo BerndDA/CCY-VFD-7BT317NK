@@ -32,7 +32,7 @@ private:
   const char* jsonFilename; // JSON filename
   
   // Helper method to parse JSON file
-  bool parseJsonFile(DynamicJsonDocument& doc);
+  bool parseJsonFile(JsonDocument& doc);
   
   // Create a MenuItem object from JSON data
   MenuItem createMenuItemFromJson(JsonVariant& item);

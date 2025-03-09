@@ -19,6 +19,7 @@
 #define STYLE_TIME 0
 #define STYLE_TEXT 1
 #define STYLE_MENU 2
+#define STYLE_NOTIME 3
 
 // Type definitions for better readability
 typedef uint8_t u8;
@@ -29,6 +30,6 @@ typedef uint32_t u32;
 extern u8 power;       // Power state
 extern u8 countdown;   // Countdown state
 extern u8 light_level; // Display brightness level
-extern u8 style_page;  // Current page style
+//extern volatile u8 style_page;  // Current page style
 
 #endif // CONFIG_H

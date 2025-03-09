@@ -64,7 +64,7 @@ void http_reqeust_save_setteing() {
 }
 
 void http_reqeust_get_setteing() {
-    DynamicJsonDocument jsonDoc(1024);
+    JsonDocument jsonDoc;
     String jsonResponse;
     serializeJson(jsonDoc, jsonResponse);
     server.send(200, "application/json", jsonResponse);

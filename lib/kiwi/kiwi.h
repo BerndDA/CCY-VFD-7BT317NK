@@ -6,6 +6,8 @@
 #include <ESP8266HTTPClient.h>
 #include <LittleFS.h>
 
+#define KIWI_API_URL "https://kiwidesschicksals.de/kiwi2.php"
+
 class Kiwi
 {
 public:
@@ -13,7 +15,7 @@ public:
   ~Kiwi();
 
   bool begin();
-  bool processApiData(const char *apiUrl);
+  bool processApiData();
   bool isDataAvailable();
   void clearFiles();
 
@@ -47,7 +49,7 @@ private:
   char decodedBuffer[decodedBufferSize + 1]; // +1 for null terminator
 
   // Separator character
-  static const char SEPARATOR = '\xA7';
+  static const char SEPARATOR = '\xA7'; // ASCII code for §
 
   void processStream(WiFiClient *stream);
   void processDecodedData(char *data, int length);

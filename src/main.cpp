@@ -45,17 +45,12 @@ void set_tick();
 void task_time_refresh_fun();
 void vfd_synchronous();
 
-u32 key_filter_sec = 0; // Key debounce
-u32 k1_last_time = 0;   // Last trigger time record of key 1
-u8 key_last_pin = 0;    // Record the last pressed key PIN
-
-tm timeinfo; // Time object
-time_t now;
+bool isTimeSet = false;
 
 u8 mh_state = 0;    // Colon display state
 u8 light_level = 1; // Brightness level
 
-u8 style_page = STYLE_TIME; // Page display style
+volatile u8 style_page = STYLE_TIME; // Page display style
 
 // Timer initialization
 Ticker task_time_refresh; // Time refresh
@@ -68,6 +63,8 @@ MenuHandler menuhandler;
 // key habndling
 volatile bool keyPressed = false;
 volatile unsigned long pressStartTime = 0;
+volatile unsigned long lastDebounceTime = 0;  // the last time the button state was checked
+const unsigned long debounceDelay = 50;      // the debounce time in milliseconds
 Ticker task_key_pressed;
 bool isLongPress = false; // Tracks whether long press was detected
 
@@ -80,6 +77,12 @@ void setup()
     Serial.begin(115200);
 
     set_key_listener();
+    settimeofday_cb([]() { // set callback to execute after time is retrieved
+        style_page = STYLE_TIME;
+        isTimeSet = true;
+        Serial.println("Time set");
+        vfd_gui_set_pic(PIC_CLOCK, true);
+    });
     configTime(MY_TZ, MY_NTP_SERVER);
 
     vfd_gui_init();
@@ -90,24 +93,11 @@ void setup()
     wifimanager.autoConnect("VFD-03");
     vfd_gui_set_pic(PIC_WIFI, true);
     web_setup();
-    // OTA upgrade initialization
-    ArduinoOTA.setPassword("lonelybinary");
-    ArduinoOTA.onStart([]()
-                       {
-        task_time_refresh.detach();
-        animator.set_text_and_run("*OTA*", 120, 100);
-        vfd_gui_set_pic(PIC_REC, true); });
-    ArduinoOTA.onEnd([]()
-                     {
-        animator.stop();
-        vfd_gui_set_pic(PIC_REC, false);
-        vfd_gui_set_text("reboot");
-        ESP.restart(); });
-    ArduinoOTA.begin();
+    initOTA();
     animator.onStart([]()
                      { style_page = STYLE_TEXT; });
     animator.onEnd([]()
-                   { style_page = STYLE_TIME; });
+                   { style_page = isTimeSet ? STYLE_TIME : STYLE_NOTIME; });
 
     menuhandler.begin();
     menuItems = menuhandler.getActiveMenuItems();
@@ -121,7 +111,7 @@ void setup()
     if (!kiwi.isDataAvailable())
     {
         animator.set_text_and_run("Kiwi Loading...", 210, 20);
-        if (kiwi.processApiData("https://kiwidesschicksals.de/kiwi2.php"))
+        if (kiwi.processApiData())
         {
             Serial.println("Data processing completed successfully!");
         }
@@ -132,12 +122,32 @@ void setup()
         ESP.restart();
     }
     animator.set_text_and_run(WiFi.localIP().toString().c_str(), 210);
+    task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
+}
+
+void initOTA()
+{
+    // OTA upgrade initialization
+    ArduinoOTA.setPassword("lonelybinary");
+    ArduinoOTA.onStart([]()
+                       {
+        task_time_refresh.detach();
+        task_key_pressed.detach();
+        animator.set_text_and_run("*OTA*", 210, 200);
+        vfd_gui_set_pic(PIC_REC, true); });
+    ArduinoOTA.onEnd([]()
+                     {
+        animator.stop();
+        vfd_gui_set_pic(PIC_REC, false);
+        vfd_gui_set_text("reboot");
+        ESP.restart(); });
+
+    ArduinoOTA.begin();
 }
 
 void loop()
 {
     ArduinoOTA.handle();
-    getTimeInfo();
     web_loop();
     vfd_synchronous();
     set_tick();
@@ -150,38 +160,37 @@ void set_key_listener()
     attachInterrupt(digitalPinToInterrupt(KEY1), keyISR, CHANGE);
 }
 
-void getTimeInfo()
-{
-    time(&now); // read the current time
-    localtime_r(&now, &timeinfo);
-}
-
 //////////////////////////////////////////////////////////////////////////////////
 //// External key interrupt handling
 //////////////////////////////////////////////////////////////////////////////////
 void IRAM_ATTR keyISR()
 {
-    if (!digitalRead(KEY1))
-    { // Button Pressed
+    // Get current time for debouncing
+    unsigned long currentTime = millis();
+    // Check if enough time has passed since the last state change (debounce)
+    if (currentTime - lastDebounceTime < debounceDelay) {
+        return; // Exit if we're within the debounce period
+    }
+    // Update the debounce timer
+    lastDebounceTime = currentTime;
+    
+    // Process button states with debouncing applied
+    if (!digitalRead(KEY1)) { // Button Pressed
         pressStartTime = millis();
         keyPressed = true;
-        isLongPress = false;                              // Reset long press flag
-        task_key_pressed.attach_ms(SCROLL_INTERVAL, scrollMenu); // Start scrolling every 500ms
+        isLongPress = false;                                     // Reset long press flag
+        task_key_pressed.attach_ms(SCROLL_INTERVAL, scrollMenu); // Start scrolling every interval
     }
-    else
-    {                       // Button Released
+    else { // Button Released
         task_key_pressed.detach(); // Stop menu scrolling
         keyPressed = false;
         style_page = STYLE_TIME;
         unsigned long pressDuration = millis() - pressStartTime;
-        if (pressDuration < LONG_PRESS_TIME && !isLongPress)
-        {
+        if (pressDuration < LONG_PRESS_TIME && !isLongPress) {
             selectMenuItem(); // Short press action
         }
-        if (isLongPress) // released 
-        {
-            for (int i = 0; i < 4; i++)
-            {
+        if (isLongPress) { // Released after long press
+            for (int i = 0; i < 4; i++) {
                 vfd_gui_set_text(" ");
                 delay(100);
                 vfd_gui_set_text(menuItems[currentMenuIndex].menu.c_str());
@@ -191,7 +200,7 @@ void IRAM_ATTR keyISR()
     }
 }
 
-void scrollMenu()
+void IRAM_ATTR scrollMenu()
 {
     if (keyPressed && millis() - pressStartTime >= LONG_PRESS_TIME)
     {
@@ -204,7 +213,7 @@ void scrollMenu()
     }
 }
 
-void selectMenuItem()
+void IRAM_ATTR selectMenuItem()
 {
     Serial.println("Short Press: Select Menu Item");
     // if first item is selected, random record is selected
@@ -239,6 +248,10 @@ void task_time_refresh_fun()
 {
     if (style_page == STYLE_TIME)
     {
+        time_t now;
+        tm timeinfo;
+        time(&now);
+        localtime_r(&now, &timeinfo);
         char buffer[60];
         if (timeinfo.tm_sec % 20 == 0)
         {
@@ -252,16 +265,16 @@ void task_time_refresh_fun()
         vfd_gui_set_maohao2(mh_state);
         mh_state = !mh_state;
     }
-    vfd_gui_set_pic(PIC_CLOCK, true);
+    else if (style_page == STYLE_NOTIME)
+    {
+        vfd_gui_set_text("NO NTP");
+        vfd_gui_set_pic(PIC_CLOCK, false);
+    }
     vfd_gui_set_pic(PIC_WIFI, WiFi.isConnected());
 }
 
 void set_tick()
 {
-    if (!task_time_refresh.active())
-    {
-        task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
-    }
 }
 
 //////////////////////////////////////////////////////////////////////////////////
