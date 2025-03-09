@@ -28,18 +28,12 @@
 #include <Ticker.h>
 #include <coredecls.h>
 #include <gui.h>
-#include <service.h>
 #include <web_server.h>
 #include <WiFiManager.h>
 #include <animator.h>
 #include <kiwi.h>
 #include <menuhandler.h>
-
-#define MY_NTP_SERVER "at.pool.ntp.org"
-#define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"
-#define LONG_PRESS_TIME 500 // 500ms threshold for long press
-#define SCROLL_INTERVAL 800 // 800ms interval for menu scrolling
-#define MENU_SIZE 6         // Number of menu items
+#include <config.h>
 
 void set_key_listener();
 IRAM_ATTR void handle_key_interrupt();
@@ -50,11 +44,6 @@ void getTimeInfo();
 void set_tick();
 void task_time_refresh_fun();
 void vfd_synchronous();
-void alarm_handle(u8 state);
-void countdown_handle(u8 state, u8 hour, u8 min, u8 sec);
-
-u8 power = 1;      // Power
-u8 countdounw = 0; // Whether to enable countdown mode
 
 u32 key_filter_sec = 0; // Key debounce
 u32 k1_last_time = 0;   // Last trigger time record of key 1
@@ -63,11 +52,10 @@ u8 key_last_pin = 0;    // Record the last pressed key PIN
 tm timeinfo; // Time object
 time_t now;
 
-String time_str = String();
 u8 mh_state = 0;    // Colon display state
 u8 light_level = 1; // Brightness level
 
-u8 style_page = STYLE_DEFAULT; // Page display style
+u8 style_page = STYLE_TIME; // Page display style
 
 // Timer initialization
 Ticker task_time_refresh; // Time refresh
@@ -80,7 +68,7 @@ MenuHandler menuhandler;
 // key habndling
 volatile bool keyPressed = false;
 volatile unsigned long pressStartTime = 0;
-Ticker keyTicker;
+Ticker task_key_pressed;
 bool isLongPress = false; // Tracks whether long press was detected
 
 // Menu items
@@ -98,10 +86,7 @@ void setup()
     vfd_gui_set_blk_level(light_level);
     vfd_gui_set_text(" boot");
     animator.start_loading(0x01 | 0x20);
-    // Initialize StoreFS
-    store_init();
-    // Read data
-    store_get_setting(&setting_obj);
+
     wifimanager.autoConnect("VFD-03");
     vfd_gui_set_pic(PIC_WIFI, true);
     web_setup();
@@ -122,7 +107,7 @@ void setup()
     animator.onStart([]()
                      { style_page = STYLE_TEXT; });
     animator.onEnd([]()
-                   { style_page = STYLE_DEFAULT; });
+                   { style_page = STYLE_TIME; });
 
     menuhandler.begin();
     menuItems = menuhandler.getActiveMenuItems();
@@ -153,19 +138,9 @@ void loop()
 {
     ArduinoOTA.handle();
     getTimeInfo();
-    if (power)
-    {
-        // If timing is in progress, this method cannot be executed, otherwise blocking will cause inaccurate timing
-        if (!countdounw)
-        {
-            web_loop();
-            vfd_synchronous();
-            set_tick();
-        }
-        logic_handler_countdown(&timeinfo, countdown_handle);
-    }
-    // Power on/off handling
-    logic_handler_alarm_clock(&timeinfo, alarm_handle);
+    web_loop();
+    vfd_synchronous();
+    set_tick();
 }
 
 void set_key_listener()
@@ -191,19 +166,19 @@ void IRAM_ATTR keyISR()
         pressStartTime = millis();
         keyPressed = true;
         isLongPress = false;                              // Reset long press flag
-        keyTicker.attach_ms(SCROLL_INTERVAL, scrollMenu); // Start scrolling every 500ms
+        task_key_pressed.attach_ms(SCROLL_INTERVAL, scrollMenu); // Start scrolling every 500ms
     }
     else
     {                       // Button Released
-        keyTicker.detach(); // Stop menu scrolling
+        task_key_pressed.detach(); // Stop menu scrolling
         keyPressed = false;
-        style_page = STYLE_DEFAULT;
+        style_page = STYLE_TIME;
         unsigned long pressDuration = millis() - pressStartTime;
         if (pressDuration < LONG_PRESS_TIME && !isLongPress)
         {
             selectMenuItem(); // Short press action
         }
-        if (isLongPress)
+        if (isLongPress) // released 
         {
             for (int i = 0; i < 4; i++)
             {
@@ -232,7 +207,7 @@ void scrollMenu()
 void selectMenuItem()
 {
     Serial.println("Short Press: Select Menu Item");
-    // if last item is selected, random record is selected
+    // if first item is selected, random record is selected
     size_t menuitem = currentMenuIndex;
     if (currentMenuIndex == 0)
     {
@@ -262,7 +237,7 @@ void selectMenuItem()
 
 void task_time_refresh_fun()
 {
-    if (style_page == STYLE_DEFAULT)
+    if (style_page == STYLE_TIME)
     {
         char buffer[60];
         if (timeinfo.tm_sec % 20 == 0)
@@ -295,53 +270,4 @@ void set_tick()
 
 void vfd_synchronous()
 {
-}
-
-/*
- Alarm handling
-*/
-void alarm_handle(u8 state)
-{
-    // Handle state
-    static u8 handle_state = 1;
-    if (handle_state)
-    {
-        // Handled
-        handle_state = 0;
-        task_time_refresh.detach();
-        vfd_gui_set_text("alarm.");
-        for (size_t i = 0; i < 10; i++)
-        {
-            delay(350);
-        }
-        // Reset to pending
-        handle_state = 0;
-    }
-}
-
-/**
- * Countdown handling
- */
-void countdown_handle(u8 state, u8 hour, u8 min, u8 sec)
-{
-    countdounw = state;
-    if (countdounw)
-    {
-        task_time_refresh.detach();
-        animator.stop();
-        time_str.clear();
-        // Concatenate time string format: HH:mm:ss
-        time_str += (hour < 10 ? "0" : "");
-        time_str += hour;
-        time_str += (min < 10 ? "0" : "");
-        time_str += min;
-        time_str += (sec < 10 ? "0" : "");
-        time_str += sec;
-        vfd_gui_set_text(time_str.c_str());
-        vfd_gui_set_icon(PIC_REC, 1);
-        if (WiFi.isConnected())
-        {
-            vfd_gui_set_icon(PIC_WIFI | vfd_gui_get_save_icon(), 0);
-        }
-    }
 }

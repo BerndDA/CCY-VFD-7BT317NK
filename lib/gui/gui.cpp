@@ -31,7 +31,6 @@ u8 mh1, mh2; // Colon 1, 2
 u32 current_icon_flag = 0;
 u32 save_icon = 0;
 u32 current_pic_flag = 0;
-static u8 long_cancel_flag = 0;
 
 void vfd_gui_init()
 {
