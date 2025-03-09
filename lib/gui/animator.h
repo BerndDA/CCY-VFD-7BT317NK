@@ -57,6 +57,7 @@ private:
     uint8_t _cycles = 1;
     uint8_t _currentCycle = 1;
     uint8_t _positions = 0;
+    
     bool _running = false;
     void (*_endCallback)() = 0;
     void (*_startCallback)() = 0;
@@ -77,12 +78,25 @@ private:
                 vfd_gui_set_one_pattern(i, segmentSteps[_index]);
         }
     }
+    void start(uint8_t cycles = 1)
+    {
+        _index = 0;
+        _cycles = cycles;
+        _currentCycle = 1;
+        _running = true;
+        if (_startCallback)
+            _startCallback();
+        _ticker.attach_ms(_frame, std::bind(&Animator::_static_callback, this));
+    }
 
 public:
     Animator() {}
     void set_text_and_run(const char *text, uint8_t frame = 210, uint8_t cycles = 1)
     {
+        if (_running)
+            stop();
         set_text(text, frame);
+        vfd_gui_set_pic(PIC_PLAY, true);
         start(cycles);
     }
     void start_loading(uint8_t positions)
@@ -104,22 +118,11 @@ public:
         _length = _text.length();
         _animCallback = std::bind(&Animator::text_callback, this);
     }
-    void start(uint8_t cycles = 1)
-    {
-        if (_running)
-            stop();
-        _index = 0;
-        _cycles = cycles;
-        _currentCycle = 1;
-        _running = true;
-        if (_startCallback)
-            _startCallback();
-        _ticker.attach_ms(_frame, std::bind(&Animator::_static_callback, this));
-    }
     void stop()
     {
         _running = false;
         _ticker.detach();
+        vfd_gui_set_pic(PIC_PLAY, false);
         if (_endCallback)
             _endCallback();
     }

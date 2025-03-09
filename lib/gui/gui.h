@@ -34,6 +34,7 @@
 #define PIC_CLOCK 0x000400
 #define PIC_3D    0x000200
 #define PIC_WIFI  0x000100
+#define PIC_PLAY  0x00A015
 
 #define ICON_G1_ALL 0xFFFF1F
 #define ICON_G1_STYLE_1 0x010000
