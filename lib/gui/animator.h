@@ -57,7 +57,7 @@ private:
     uint8_t _cycles = 1;
     uint8_t _currentCycle = 1;
     uint8_t _positions = 0;
-    
+
     bool _running = false;
     void (*_endCallback)() = 0;
     void (*_startCallback)() = 0;
@@ -96,7 +96,6 @@ public:
         if (_running)
             stop();
         set_text(text, frame);
-        vfd_gui_set_pic(PIC_PLAY, true);
         start(cycles);
     }
     void start_loading(uint8_t positions)
@@ -122,7 +121,6 @@ public:
     {
         _running = false;
         _ticker.detach();
-        vfd_gui_set_pic(PIC_PLAY, false);
         if (_endCallback)
             _endCallback();
     }

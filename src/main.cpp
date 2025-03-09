@@ -34,13 +34,13 @@
 #include <kiwi.h>
 #include <menuhandler.h>
 #include <config.h>
+#include "mqtt_manager.h"
 
 void set_key_listener();
 IRAM_ATTR void handle_key_interrupt();
 IRAM_ATTR void keyISR();
 void scrollMenu();
 void selectMenuItem();
-void getTimeInfo();
 void set_tick();
 void task_time_refresh_fun();
 void vfd_synchronous();
@@ -59,11 +59,12 @@ WiFiManager wifimanager;
 Animator animator;
 Kiwi kiwi;
 MenuHandler menuhandler;
+MqttManager mqttManager("mqtt.home.seidenspinner.tv", 2222, "text/set");
 
 // key habndling
 volatile bool keyPressed = false;
 volatile unsigned long pressStartTime = 0;
-volatile unsigned long lastDebounceTime = 0;  // the last time the button state was checked
+volatile unsigned long lastDebounceTime = 0; // the last time the button state was checked
 const unsigned long debounceDelay = 50;      // the debounce time in milliseconds
 Ticker task_key_pressed;
 bool isLongPress = false; // Tracks whether long press was detected
@@ -71,6 +72,13 @@ bool isLongPress = false; // Tracks whether long press was detected
 // Menu items
 std::vector<MenuItem> menuItems;
 u8 currentMenuIndex = 0; // Track current menu selection
+
+// MQTT message callback
+void handleMqttMessage(const char *message)
+{
+    vfd_gui_set_pic(PIC_PLAY, true);
+    animator.set_text_and_run(message, 210);
+}
 
 void setup()
 {
@@ -97,7 +105,9 @@ void setup()
     animator.onStart([]()
                      { style_page = STYLE_TEXT; });
     animator.onEnd([]()
-                   { style_page = isTimeSet ? STYLE_TIME : STYLE_NOTIME; });
+                   { 
+                    vfd_gui_set_pic(PIC_PLAY, false); 
+                    style_page = isTimeSet ? STYLE_TIME : STYLE_NOTIME; });
 
     menuhandler.begin();
     menuItems = menuhandler.getActiveMenuItems();
@@ -122,6 +132,9 @@ void setup()
         ESP.restart();
     }
     animator.set_text_and_run(WiFi.localIP().toString().c_str(), 210);
+    // Initialize MQTT with message callback
+    mqttManager.onMessage(handleMqttMessage);
+    mqttManager.begin();
     task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
 }
 
@@ -147,6 +160,7 @@ void initOTA()
 
 void loop()
 {
+    mqttManager.loop(); // Handle MQTT connection and callback
     ArduinoOTA.handle();
     web_loop();
     vfd_synchronous();
@@ -168,29 +182,35 @@ void IRAM_ATTR keyISR()
     // Get current time for debouncing
     unsigned long currentTime = millis();
     // Check if enough time has passed since the last state change (debounce)
-    if (currentTime - lastDebounceTime < debounceDelay) {
+    if (currentTime - lastDebounceTime < debounceDelay)
+    {
         return; // Exit if we're within the debounce period
     }
     // Update the debounce timer
     lastDebounceTime = currentTime;
-    
+
     // Process button states with debouncing applied
-    if (!digitalRead(KEY1)) { // Button Pressed
+    if (!digitalRead(KEY1))
+    { // Button Pressed
         pressStartTime = millis();
         keyPressed = true;
         isLongPress = false;                                     // Reset long press flag
         task_key_pressed.attach_ms(SCROLL_INTERVAL, scrollMenu); // Start scrolling every interval
     }
-    else { // Button Released
+    else
+    {                              // Button Released
         task_key_pressed.detach(); // Stop menu scrolling
         keyPressed = false;
         style_page = STYLE_TIME;
         unsigned long pressDuration = millis() - pressStartTime;
-        if (pressDuration < LONG_PRESS_TIME && !isLongPress) {
+        if (pressDuration < LONG_PRESS_TIME && !isLongPress)
+        {
             selectMenuItem(); // Short press action
         }
-        if (isLongPress) { // Released after long press
-            for (int i = 0; i < 4; i++) {
+        if (isLongPress)
+        { // Released after long press
+            for (int i = 0; i < 4; i++)
+            {
                 vfd_gui_set_text(" ");
                 delay(100);
                 vfd_gui_set_text(menuItems[currentMenuIndex].menu.c_str());
@@ -255,6 +275,7 @@ void task_time_refresh_fun()
         char buffer[60];
         if (timeinfo.tm_sec % 20 == 0)
         {
+            mqttManager.publishDynamic();
             strftime(buffer, sizeof(buffer), "%A %d %B %Y", &timeinfo);
             animator.set_text_and_run(buffer, 210);
             return;
