@@ -5,6 +5,7 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <vector>
+#include <functional>
 
 // Structure to hold menu item information
 struct MenuItem {
@@ -28,8 +29,32 @@ public:
   // Get a random record from a specific menu item
   String getRandomRecord(const MenuItem& item);
 
+  // Get the current menu items list
+  const std::vector<MenuItem>& getMenuItems() const;
+
+  // Initialize the menu items vector with special items
+  void initializeMenuItems();
+  
+  // Scroll to the next menu item and return the new item's text
+  String scrollToNextItem();
+  
+  // Select and process the current menu item
+  String selectCurrentItem();
+  
+  // Get current menu item index
+  uint8_t getCurrentMenuIndex() const;
+  
+  // Set callback for special menu actions
+  void setSpecialActionCallback(std::function<void(const char* item)> callback);
+  
+  // Flash/blink the current menu item text (for visual feedback)
+  void flashCurrentMenuItem();
+
 private:
   const char* jsonFilename; // JSON filename
+  std::vector<MenuItem> menuItems; // Menu items vector
+  uint8_t currentMenuIndex; // Current selected menu index
+  std::function<void(const char* item)> specialActionCallback; // Callback for special actions
   
   // Helper method to parse JSON file
   bool parseJsonFile(JsonDocument& doc);

@@ -35,12 +35,18 @@
 #include <menuhandler.h>
 #include <config.h>
 #include "mqtt_manager.h"
+#include <EEPROM.h>
+
+struct mqtt_config
+{
+    bool enable;
+    char server[40];
+    char port[6];
+};
 
 void set_key_listener();
 IRAM_ATTR void handle_key_interrupt();
 IRAM_ATTR void keyISR();
-void scrollMenu();
-void selectMenuItem();
 void set_tick();
 void task_time_refresh_fun();
 void vfd_synchronous();
@@ -59,19 +65,15 @@ WiFiManager wifimanager;
 Animator animator;
 Kiwi kiwi;
 MenuHandler menuhandler;
-MqttManager mqttManager("mqtt.home.seidenspinner.tv", 2222, "text/set");
+MqttManager *mqttManager = nullptr;
 
-// key habndling
+// key handling
 volatile bool keyPressed = false;
 volatile unsigned long pressStartTime = 0;
 volatile unsigned long lastDebounceTime = 0; // the last time the button state was checked
 const unsigned long debounceDelay = 50;      // the debounce time in milliseconds
 Ticker task_key_pressed;
 bool isLongPress = false; // Tracks whether long press was detected
-
-// Menu items
-std::vector<MenuItem> menuItems;
-u8 currentMenuIndex = 0; // Track current menu selection
 
 // MQTT message callback
 void handleMqttMessage(const char *message)
@@ -80,10 +82,48 @@ void handleMqttMessage(const char *message)
     animator.set_text_and_run(message, 210);
 }
 
+// Callback function for the update menu item
+void handleUpdateAction(const char *item)
+{
+    Serial.println("special action: " + String(item));
+    if (strcmp(item, "update") == 0)
+    {
+        // Clear all files in the LittleFS
+        Dir dir = LittleFS.openDir("/");
+        while (dir.next())
+        {
+            String fileName = dir.fileName();
+            Serial.print("Deleting file: ");
+            Serial.println(fileName);
+            LittleFS.remove(fileName);
+        }
+        ESP.restart();
+    }
+    if (strcmp(item, "config") == 0)
+    {
+        wifimanager.erase();
+        ESP.restart();
+    }
+}
+
 void setup()
 {
     Serial.begin(115200);
-
+    EEPROM.begin(80);
+    mqtt_config config;
+    EEPROM.get(0, config);
+    WiFiManagerParameter custom_mqtt_server("server", "mqtt server", config.server, 40);
+    WiFiManagerParameter custom_mqtt_port("port", "mqtt port", config.port, 6);
+    wifimanager.addParameter(&custom_mqtt_server);
+    wifimanager.addParameter(&custom_mqtt_port);
+    wifimanager.setSaveConfigCallback([&config, &custom_mqtt_server, &custom_mqtt_port]()
+                                      {
+        strcpy(config.server, custom_mqtt_server.getValue());
+        strcpy(config.port, custom_mqtt_port.getValue());
+        EEPROM.put(0, config);
+        EEPROM.commit(); });
+    wifimanager.setAPCallback([](WiFiManager *wifimanager)
+                              { animator.set_text_and_run("AP Mode: VFD-03", 210, 200); });
     set_key_listener();
     settimeofday_cb([]() { // set callback to execute after time is retrieved
         style_page = STYLE_TIME;
@@ -106,17 +146,12 @@ void setup()
                      { style_page = STYLE_TEXT; });
     animator.onEnd([]()
                    { 
-                    vfd_gui_set_pic(PIC_PLAY, false); 
-                    style_page = isTimeSet ? STYLE_TIME : STYLE_NOTIME; });
+                     vfd_gui_set_pic(PIC_PLAY, false); 
+                     style_page = isTimeSet ? STYLE_TIME : STYLE_NOTIME; });
 
     menuhandler.begin();
-    menuItems = menuhandler.getActiveMenuItems();
-    MenuItem random;
-    random.menu = "random";
-    menuItems.insert(menuItems.begin(), random);
-    MenuItem upd;
-    upd.menu = "update";
-    menuItems.push_back(upd);
+    menuhandler.initializeMenuItems();
+    menuhandler.setSpecialActionCallback(handleUpdateAction);
 
     if (!kiwi.isDataAvailable())
     {
@@ -133,8 +168,12 @@ void setup()
     }
     animator.set_text_and_run(WiFi.localIP().toString().c_str(), 210);
     // Initialize MQTT with message callback
-    mqttManager.onMessage(handleMqttMessage);
-    mqttManager.begin();
+    if (strlen(config.server) > 0)
+    {
+        mqttManager = new MqttManager(config.server, atoi(config.port), "text/set");
+        mqttManager->onMessage(handleMqttMessage);
+        mqttManager->begin();
+    }
     task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
 }
 
@@ -144,23 +183,24 @@ void initOTA()
     ArduinoOTA.setPassword("lonelybinary");
     ArduinoOTA.onStart([]()
                        {
-        task_time_refresh.detach();
-        task_key_pressed.detach();
-        animator.set_text_and_run("*OTA*", 210, 200);
-        vfd_gui_set_pic(PIC_REC, true); });
+         task_time_refresh.detach();
+         task_key_pressed.detach();
+         animator.set_text_and_run("*OTA*", 210, 200);
+         vfd_gui_set_pic(PIC_REC, true); });
     ArduinoOTA.onEnd([]()
                      {
-        animator.stop();
-        vfd_gui_set_pic(PIC_REC, false);
-        vfd_gui_set_text("reboot");
-        ESP.restart(); });
+         animator.stop();
+         vfd_gui_set_pic(PIC_REC, false);
+         vfd_gui_set_text("reboot");
+         ESP.restart(); });
 
     ArduinoOTA.begin();
 }
 
 void loop()
 {
-    mqttManager.loop(); // Handle MQTT connection and callback
+    if (mqttManager)
+        mqttManager->loop(); // Handle MQTT connection and callback
     ArduinoOTA.handle();
     web_loop();
     vfd_synchronous();
@@ -194,8 +234,17 @@ void IRAM_ATTR keyISR()
     { // Button Pressed
         pressStartTime = millis();
         keyPressed = true;
-        isLongPress = false;                                     // Reset long press flag
-        task_key_pressed.attach_ms(SCROLL_INTERVAL, scrollMenu); // Start scrolling every interval
+        isLongPress = false;                               // Reset long press flag
+        task_key_pressed.attach_ms(SCROLL_INTERVAL, []() { // Use lambda for the callback
+            if (keyPressed && millis() - pressStartTime >= LONG_PRESS_TIME)
+            {
+                animator.stop();
+                style_page = STYLE_MENU;
+                isLongPress = true; // Mark as long press
+                String menuText = menuhandler.scrollToNextItem();
+                vfd_gui_set_text(menuText.c_str());
+            }
+        });
     }
     else
     {                              // Button Released
@@ -205,59 +254,26 @@ void IRAM_ATTR keyISR()
         unsigned long pressDuration = millis() - pressStartTime;
         if (pressDuration < LONG_PRESS_TIME && !isLongPress)
         {
-            selectMenuItem(); // Short press action
+            // Short press action: select current menu item
+            String msg = menuhandler.selectCurrentItem();
+            if (msg.length() > 0)
+            {
+                animator.set_text_and_run(msg.c_str(), 210);
+            }
         }
         if (isLongPress)
         { // Released after long press
+            menuhandler.flashCurrentMenuItem();
+            // Visual feedback - blink current menu text
             for (int i = 0; i < 4; i++)
             {
                 vfd_gui_set_text(" ");
                 delay(100);
-                vfd_gui_set_text(menuItems[currentMenuIndex].menu.c_str());
+                vfd_gui_set_text(menuhandler.getMenuItems().at(menuhandler.getCurrentMenuIndex()).menu.c_str());
                 delay(100);
             }
         }
     }
-}
-
-void IRAM_ATTR scrollMenu()
-{
-    if (keyPressed && millis() - pressStartTime >= LONG_PRESS_TIME)
-    {
-        animator.stop();
-        style_page = STYLE_MENU;
-        isLongPress = true; // Mark as long press
-        currentMenuIndex = (currentMenuIndex + 1) % menuItems.size();
-        Serial.println(menuItems.at(currentMenuIndex).menu);
-        vfd_gui_set_text(menuItems.at(currentMenuIndex).menu.c_str());
-    }
-}
-
-void IRAM_ATTR selectMenuItem()
-{
-    Serial.println("Short Press: Select Menu Item");
-    // if first item is selected, random record is selected
-    size_t menuitem = currentMenuIndex;
-    if (currentMenuIndex == 0)
-    {
-        menuitem = random(1, menuItems.size() - 1);
-    }
-    // check for last item
-    if (currentMenuIndex == menuItems.size() - 1)
-    {
-        Dir dir = LittleFS.openDir("/");
-        while (dir.next())
-        {
-            String fileName = dir.fileName();
-            Serial.print("Deleting file: ");
-            Serial.println(fileName);
-            LittleFS.remove(fileName);
-        }
-        ESP.restart();
-    }
-    // Your short press action logic here
-    String msg = menuhandler.getRandomRecord(menuItems.at(menuitem));
-    animator.set_text_and_run(msg.c_str(), 210);
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -275,7 +291,8 @@ void task_time_refresh_fun()
         char buffer[60];
         if (timeinfo.tm_sec % 20 == 0)
         {
-            mqttManager.publishDynamic();
+            if (mqttManager)
+                mqttManager->publishDynamic();
             strftime(buffer, sizeof(buffer), "%A %d %B %Y", &timeinfo);
             animator.set_text_and_run(buffer, 210);
             return;

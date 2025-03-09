@@ -10,8 +10,8 @@
  class MqttManager {
  public:
      // Constructor with default values
-     MqttManager(const char* server = "mqtt.home.seidenspinner.tv", 
-                 int port = 2222, 
+     MqttManager(const char* server, 
+                 int port, 
                  const char* inTopic = "text/set");
      
      // Initialize MQTT connection

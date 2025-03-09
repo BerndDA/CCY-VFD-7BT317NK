@@ -5,21 +5,26 @@
 #define BASE_URL "https://raw.githubusercontent.com/BerndDA/CCY-VFD-7BT317NK/refs/heads/main/assets"
 #define DATA_FILENAME "/data.json"
 
-MenuHandler::MenuHandler() : jsonFilename(DATA_FILENAME) {
+MenuHandler::MenuHandler() : jsonFilename(DATA_FILENAME), currentMenuIndex(0)
+{
 }
 
-bool MenuHandler::begin() {
+bool MenuHandler::begin()
+{
     // Initialize LittleFS if not already initialized
-    if (!LittleFS.begin()) {
+    if (!LittleFS.begin())
+    {
         Serial.println("Failed to mount LittleFS");
         return false;
     }
-    
+
     // Check if JSON file exists, if not download it
-    if (!LittleFS.exists(jsonFilename)) {
+    if (!LittleFS.exists(jsonFilename))
+    {
         String url = String(BASE_URL) + String(jsonFilename);
         FileDownloader downloader;
-        if (!downloader.downloadFile(url.c_str(), jsonFilename)) {
+        if (!downloader.downloadFile(url.c_str(), jsonFilename))
+        {
             Serial.printf("JSON file %s not found and could not be downloaded\n", jsonFilename);
             return false;
         }
@@ -27,10 +32,12 @@ bool MenuHandler::begin() {
     return true;
 }
 
-bool MenuHandler::parseJsonFile(JsonDocument &doc) {
+bool MenuHandler::parseJsonFile(JsonDocument &doc)
+{
     // Open JSON file for reading
     File jsonFile = LittleFS.open(jsonFilename, "r");
-    if (!jsonFile) {
+    if (!jsonFile)
+    {
         Serial.printf("Failed to open JSON file %s for reading\n", jsonFilename);
         return false;
     }
@@ -41,7 +48,8 @@ bool MenuHandler::parseJsonFile(JsonDocument &doc) {
 
     // Parse the JSON string
     DeserializationError error = deserializeJson(doc, jsonString);
-    if (error) {
+    if (error)
+    {
         Serial.printf("Failed to parse JSON: %s\n", error.c_str());
         return false;
     }
@@ -49,22 +57,26 @@ bool MenuHandler::parseJsonFile(JsonDocument &doc) {
     return true;
 }
 
-std::vector<MenuItem> MenuHandler::getActiveMenuItems() {
+std::vector<MenuItem> MenuHandler::getActiveMenuItems()
+{
     std::vector<MenuItem> activeItems;
 
     JsonDocument doc;
 
     // Parse the JSON file
-    if (!parseJsonFile(doc)) {
+    if (!parseJsonFile(doc))
+    {
         return activeItems; // Return empty vector on error
     }
 
-    for (JsonVariant item : doc.as<JsonArray>()) {
+    for (JsonVariant item : doc.as<JsonArray>())
+    {
         MenuItem menuItem = createMenuItemFromJson(item);
         activeItems.push_back(menuItem);
-        
+
         // Download the menu file if it doesn't exist
-        if (!LittleFS.exists(menuItem.file)) {
+        if (!LittleFS.exists(menuItem.file))
+        {
             String url = String(BASE_URL) + String("/") + menuItem.file;
             FileDownloader downloader;
             downloader.downloadFile(url.c_str(), menuItem.file.c_str());
@@ -73,31 +85,36 @@ std::vector<MenuItem> MenuHandler::getActiveMenuItems() {
     return activeItems;
 }
 
-MenuItem MenuHandler::createMenuItemFromJson(JsonVariant &item) {
+MenuItem MenuHandler::createMenuItemFromJson(JsonVariant &item)
+{
     MenuItem menuItem;
     menuItem.menu = item["menu"].as<String>();
-    
+
     // Center the menu text
     int filler = (6 - menuItem.menu.length()) / 2;
-    for (int i = 0; i < filler; i++) {
+    for (int i = 0; i < filler; i++)
+    {
         menuItem.menu = " " + menuItem.menu;
     }
-    
+
     menuItem.intro = item["intro"].as<String>();
     menuItem.numrec = item["numrec"];
     menuItem.file = item["menu"].as<String>() + ".txt";
-    
+
     return menuItem;
 }
 
-String MenuHandler::getRandomRecord(const MenuItem &item) {
+String MenuHandler::getRandomRecord(const MenuItem &item)
+{
     // If this is a special menu item without a file
-    if (item.file.isEmpty() || item.numrec <= 0) {
+    if (item.file.isEmpty() || item.numrec <= 0)
+    {
         return item.intro;
     }
 
     // Check if file exists
-    if (!LittleFS.exists(item.file)) {
+    if (!LittleFS.exists(item.file))
+    {
         Serial.printf("Output file %s not found\n", item.file.c_str());
         return "";
     }
@@ -105,15 +122,17 @@ String MenuHandler::getRandomRecord(const MenuItem &item) {
     // Generate a random segment number between 1 and recordCount
     int randomRecordNum = random(1, item.numrec + 1);
     Serial.printf("Randomly selected record #%d of %d for menu %s\n",
-                randomRecordNum, item.numrec, item.menu.c_str());
+                  randomRecordNum, item.numrec, item.menu.c_str());
 
     return readRecordFromFile(item, randomRecordNum);
 }
 
-String MenuHandler::readRecordFromFile(const MenuItem &item, int recordNum) {
+String MenuHandler::readRecordFromFile(const MenuItem &item, int recordNum)
+{
     // Open the file for reading
     File file = LittleFS.open(item.file, "r");
-    if (!file) {
+    if (!file)
+    {
         Serial.printf("Failed to open file %s for reading\n", item.file.c_str());
         return "";
     }
@@ -122,11 +141,13 @@ String MenuHandler::readRecordFromFile(const MenuItem &item, int recordNum) {
     int currentRecord = 0;
 
     // Read the file line by line (each line is a record)
-    while (file.available()) {
+    while (file.available())
+    {
         String line = file.readStringUntil('\n');
         currentRecord++;
 
-        if (currentRecord == recordNum) {
+        if (currentRecord == recordNum)
+        {
             record = line;
             break;
         }
@@ -137,11 +158,12 @@ String MenuHandler::readRecordFromFile(const MenuItem &item, int recordNum) {
     // Process the record text
     record.trim();
     record = replaceUmlautsAndSpecialChars(record);
-    
+
     return item.intro + "      " + record;
 }
 
-String MenuHandler::replaceUmlautsAndSpecialChars(const String &text) {
+String MenuHandler::replaceUmlautsAndSpecialChars(const String &text)
+{
     String result = text;
     result.replace("ä", "ae");
     result.replace("ö", "oe");
@@ -151,4 +173,87 @@ String MenuHandler::replaceUmlautsAndSpecialChars(const String &text) {
     result.replace("Ü", "Ue");
     result.replace("ß", "ss");
     return result;
+}
+
+// New methods for menu management
+
+void MenuHandler::initializeMenuItems()
+{
+    // Get the active menu items from JSON
+    menuItems = getActiveMenuItems();
+
+    // Add "random" menu item at the beginning
+    MenuItem random;
+    random.menu = "random";
+    menuItems.insert(menuItems.begin(), random);
+
+    // Add "update" menu item at the end
+    MenuItem upd;
+    upd.menu = "update";
+    upd.numrec = 0;
+    menuItems.push_back(upd);
+
+    // Add "config" menu item at the end
+    MenuItem cnf;
+    cnf.menu = "config";
+    cnf.numrec = 0;
+    menuItems.push_back(cnf);
+
+    // Reset index to beginning
+    currentMenuIndex = 0;
+}
+
+const std::vector<MenuItem> &MenuHandler::getMenuItems() const
+{
+    return menuItems;
+}
+
+uint8_t MenuHandler::getCurrentMenuIndex() const
+{
+    return currentMenuIndex;
+}
+
+String MenuHandler::scrollToNextItem()
+{
+    // Move to the next menu item
+    currentMenuIndex = (currentMenuIndex + 1) % menuItems.size();
+    Serial.println(menuItems.at(currentMenuIndex).menu);
+    return menuItems.at(currentMenuIndex).menu;
+}
+
+String MenuHandler::selectCurrentItem()
+{
+    Serial.println("Select Menu Item");
+
+    // If first item (random) is selected, choose a random menu item
+    size_t menuitem = currentMenuIndex;
+    if (currentMenuIndex == 0)
+    {
+        menuitem = random(1, menuItems.size() - 2);
+    }
+    else if (menuItems.at(currentMenuIndex).numrec == 0) // Check for spezial item
+    {
+        // Execute the special action callback if set
+        if (specialActionCallback)
+        {
+            specialActionCallback(menuItems.at(currentMenuIndex).menu.c_str());
+        }
+        return "";
+    }
+
+    // Get a random record from the selected menu
+    return getRandomRecord(menuItems.at(menuitem));
+}
+
+void MenuHandler::setSpecialActionCallback(std::function<void(const char* item)> callback)
+{
+    specialActionCallback = callback;
+}
+
+void MenuHandler::flashCurrentMenuItem()
+{
+    // This method would be called to flash/blink the current menu item text
+    // Implementation would depend on the display logic, but we're providing the interface
+    // The actual implementation would interact with the display
+    Serial.println("Flashing menu item: " + menuItems[currentMenuIndex].menu);
 }
