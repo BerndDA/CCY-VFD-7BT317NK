@@ -20,6 +20,16 @@
         "numrec": 20
     },
     {
+        "menu": "scrum",
+        "intro": "team sagt...",
+        "numrec": 7
+    },
+    {
+        "menu": "glaskug",
+        "intro": "Glaskugel sagt...",
+        "numrec": 20
+    },
+    {
         "menu": "kiwi",
         "intro": "kiwi sagt...",
         "numrec": 0

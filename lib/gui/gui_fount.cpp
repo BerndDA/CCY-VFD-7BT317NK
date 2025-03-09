@@ -75,7 +75,7 @@ const u32 fonts[] = {
     0x3e061e, // ASCII: G index: 38
     0x323e16, // ASCII: H index: 39
     0x9e881c, // ASCII: I index: 40
-    0x908a08, // ASCII: J index: 41
+    0x988a08, // ASCII: J index: 41
     0x525a16, // ASCII: K index: 42
     0x1e0212, // ASCII: L index: 43
     0x326a17, // ASCII: M index: 44

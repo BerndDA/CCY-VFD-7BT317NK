@@ -149,7 +149,7 @@ u8 vfd_gui_set_text(const char *string)
     static u8 data[18];
     memset(data, 0, sizeof(data));
     size_t index = 0;
-    for (size_t i = 0; i < str_len; i++)
+    for (size_t i = 0; i < str_len && i < 6; i++)
     {
         if (string[i] && string[i] != '\0')
         {
