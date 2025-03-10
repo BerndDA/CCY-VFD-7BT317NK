@@ -337,70 +337,76 @@ void vfd_synchronous()
     vfd_gui_set_text(" denke");
     animator.start_loading(0x01);
 
-    // Use stack allocation for better memory management
+    // Constants for API endpoints
+    const char *BASE_URL = "https://api.openai.com/v1";
+    const char *ASSISTANTS_BETA = "assistants=v2";
+    const char *assistantId = "asst_JiePRqehNsRO3iqruEcwsoH0";
+
+    // Stack allocation for better memory management
     WiFiClientSecure client;
     HTTPClient http;
     JsonDocument doc;
+    String threadId = "";
+    String runId = "";
+    int httpResponseCode = 0;
 
     // Skip certificate validation - only for development!
     client.setInsecure();
 
-    const char *assistantId = "asst_JiePRqehNsRO3iqruEcwsoH0";
+    // Helper function for common error handling
+    auto handleError = [&](const char *errorMessage)
+    {
+        Serial.print(errorMessage);
+        Serial.println(httpResponseCode);
+        http.end();
+        animator.stop();
+        vfd_gui_set_text("AI ERR");
+        style_page = STYLE_TIME;
+        return true;
+    };
 
     // Helper function for setting headers
-    auto setHeaders = [&http]()
+    auto setHeaders = [&]()
     {
         http.addHeader("Content-Type", "application/json");
         http.addHeader("Authorization", String("Bearer ") + config->apikey);
-        http.addHeader("OpenAI-Beta", "assistants=v2");
+        http.addHeader("OpenAI-Beta", ASSISTANTS_BETA);
     };
 
     // Step 1: Create a thread
     http.useHTTP10(true);
-    http.begin(client, "https://api.openai.com/v1/threads");
+    http.begin(client, String(BASE_URL) + "/threads");
     setHeaders();
 
-    int httpResponseCode = http.POST("{}");
-
+    httpResponseCode = http.POST("{}");
     if (httpResponseCode <= 0)
     {
-        Serial.print("Error creating thread: ");
-        Serial.println(httpResponseCode);
-        http.end();
-        animator.stop();
-        vfd_gui_set_text("AI ERR");
-        style_page = STYLE_TIME;
-        return;
+        if (handleError("Error creating thread: "))
+            return;
     }
+
+    // Parse thread ID using filter for efficiency
     JsonDocument idFilter;
     idFilter["id"] = true;
     deserializeJson(doc, http.getStream(), DeserializationOption::Filter(idFilter));
-    String threadId = doc["id"].as<String>();
+    threadId = doc["id"].as<String>();
     Serial.println("Thread ID: " + threadId);
     http.end(); // Clean up before next request
 
     // Step 2: Add message to thread
-    String messagesEndpoint = "https://api.openai.com/v1/threads/" + threadId + "/messages";
-    http.begin(client, messagesEndpoint);
+    http.begin(client, String(BASE_URL) + "/threads/" + threadId + "/messages");
     setHeaders();
 
     httpResponseCode = http.POST("{\"role\":\"user\",\"content\":\"hi\"}");
-
     if (httpResponseCode != 200)
     {
-        Serial.print("Error adding message: ");
-        Serial.println(httpResponseCode);
-        http.end();
-        animator.stop();
-        vfd_gui_set_text("AI ERR");
-        style_page = STYLE_TIME;
-        return;
+        if (handleError("Error adding message: "))
+            return;
     }
-
     http.end(); // Clean up before next request
 
     // Step 3: Create a run
-    String runEndpoint = "https://api.openai.com/v1/threads/" + threadId + "/runs";
+    String runEndpoint = String(BASE_URL) + "/threads/" + threadId + "/runs";
     http.useHTTP10(true);
     http.begin(client, runEndpoint);
     setHeaders();
@@ -409,17 +415,10 @@ void vfd_synchronous()
                              "\",\"instructions\":\"\"}";
 
     httpResponseCode = http.POST(httpRequestData);
-    String runId = "";
-
     if (httpResponseCode != 200)
     {
-        Serial.print("Error creating run: ");
-        Serial.println(httpResponseCode);
-        http.end();
-        animator.stop();
-        vfd_gui_set_text("AI ERR");
-        style_page = STYLE_TIME;
-        return;
+        if (handleError("Error creating run: "))
+            return;
     }
 
     deserializeJson(doc, http.getStream(), DeserializationOption::Filter(idFilter));
@@ -427,65 +426,89 @@ void vfd_synchronous()
     Serial.println("Run ID: " + runId);
     http.end(); // Clean up before next request
 
-    do
+    // Step 4: Poll for run completion with timeout
+    const unsigned long maxWaitTime = 30000; // 30 seconds maximum wait
+    unsigned long startTime = millis();
+    bool isCompleted = false;
+
+    while (!isCompleted && (millis() - startTime < maxWaitTime))
     {
-        Serial.println("Waiting for completion...");
         delay(300);
         http.useHTTP10(true);
         http.begin(client, runEndpoint + "/" + runId);
         setHeaders();
         httpResponseCode = http.GET();
+
         if (httpResponseCode != 200)
         {
-            Serial.print("Error getting run status: ");
-            Serial.println(httpResponseCode);
-            http.end();
+            if (handleError("Error getting run status: "))
+                return;
+        }
+        JsonDocument statusFilter;
+        statusFilter["data"] = true;
+        deserializeJson(doc, http.getStream(), DeserializationOption::Filter(statusFilter));
+        http.end();
+
+        String status = doc["status"].as<String>();
+        isCompleted = (status == "completed");
+
+        // Handle potential failures
+        if (status == "failed" || status == "cancelled")
+        {
+            Serial.println("Run ended with status: " + status);
             animator.stop();
-            vfd_gui_set_text("AI ERR");
+            vfd_gui_set_text("AI FAIL");
+            delay(1000);
             style_page = STYLE_TIME;
             return;
         }
-        deserializeJson(doc, http.getStream());
-        http.end();
-    } while (doc["status"].as<String>() != "completed");
+    }
 
-    // Step 4: Get messages
-    String messagesGetEndpoint = "https://api.openai.com/v1/threads/" + threadId + "/messages";
-    http.useHTTP10(true);
-    http.begin(client, messagesGetEndpoint);
-    setHeaders();
-
-    httpResponseCode = http.GET();
-
-    if (httpResponseCode != 200)
+    // Check for timeout
+    if (!isCompleted)
     {
-        Serial.print("Error getting messages: ");
-        Serial.println(httpResponseCode);
-        http.end();
+        Serial.println("Run timed out");
         animator.stop();
-        vfd_gui_set_text("AI ERR");
+        vfd_gui_set_text("TIMEOUT");
+        delay(1000);
         style_page = STYLE_TIME;
         return;
     }
+
+    // Step 5: Get messages
+    http.useHTTP10(true);
+    http.begin(client, String(BASE_URL) + "/threads/" + threadId + "/messages");
+    setHeaders();
+
+    httpResponseCode = http.GET();
+    if (httpResponseCode != 200)
+    {
+        if (handleError("Error getting messages: "))
+            return;
+    }
+
+    // Filter to get only the message content to reduce memory usage
     JsonDocument msgFilter;
     msgFilter["data"][0]["content"][0]["text"]["value"] = true;
     deserializeJson(doc, http.getStream(), DeserializationOption::Filter(msgFilter));
 
     String msg = doc["data"][0]["content"][0]["text"]["value"].as<String>();
-
-    // Handle German umlauts
-    msg.replace("ä", "ae");
-    msg.replace("ö", "oe");
-    msg.replace("ü", "ue");
-    msg.replace("Ä", "Ae");
-    msg.replace("Ö", "Oe");
-    msg.replace("Ü", "Ue");
-    msg.replace("ß", "ss");
-
     http.end(); // Final cleanup
+
+    // Process character conversion (German umlauts)
+    const char *replacements[][2] = {
+        {"ä", "ae"}, {"ö", "oe"}, {"ü", "ue"}, {"Ä", "Ae"}, {"Ö", "Oe"}, {"Ü", "Ue"}, {"ß", "ss"}};
+
+    for (auto &pair : replacements)
+    {
+        msg.replace(pair[0], pair[1]);
+    }
+
+    // Display the message
     animator.stop();
     vfd_gui_set_pic(PIC_PLAY, true);
     animator.set_text_and_run(msg.c_str(), 210);
+
+    // Clean up
     doc.clear();
-    // No need for explicit memory cleanup with stack-allocated objects
 }
