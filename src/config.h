@@ -20,6 +20,7 @@
 #define STYLE_TEXT 1
 #define STYLE_MENU 2
 #define STYLE_NOTIME 3
+#define STYLE_AI 4
 
 // Type definitions for better readability
 typedef uint8_t u8;

@@ -54,6 +54,7 @@ private:
   const char* jsonFilename; // JSON filename
   std::vector<MenuItem> menuItems; // Menu items vector
   uint8_t currentMenuIndex; // Current selected menu index
+  uint8_t fileItems; // Number of items from config file
   std::function<void(const char* item)> specialActionCallback; // Callback for special actions
   
   // Helper method to parse JSON file
@@ -67,6 +68,8 @@ private:
   
   // Replace special characters with ASCII equivalents
   String replaceUmlautsAndSpecialChars(const String& text);
+
+
 };
 
 #endif // MENU_HANDLER_H

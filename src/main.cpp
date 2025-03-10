@@ -37,11 +37,11 @@
 #include "mqtt_manager.h"
 #include <EEPROM.h>
 
-struct mqtt_config
+struct vfd_config
 {
-    bool enable;
     char server[40];
     char port[6];
+    char apikey[180];
 };
 
 void set_key_listener();
@@ -75,6 +75,8 @@ const unsigned long debounceDelay = 50;      // the debounce time in millisecond
 Ticker task_key_pressed;
 bool isLongPress = false; // Tracks whether long press was detected
 
+vfd_config *config = new vfd_config();
+
 // MQTT message callback
 void handleMqttMessage(const char *message)
 {
@@ -82,8 +84,8 @@ void handleMqttMessage(const char *message)
     animator.set_text_and_run(message, 210);
 }
 
-// Callback function for the update menu item
-void handleUpdateAction(const char *item)
+// Callback function for other menu items
+void handleSpecialAction(const char *item)
 {
     Serial.println("special action: " + String(item));
     if (strcmp(item, "update") == 0)
@@ -104,23 +106,30 @@ void handleUpdateAction(const char *item)
         wifimanager.erase();
         ESP.restart();
     }
+    if (strcmp(item, "  ai") == 0)
+    {
+        style_page = STYLE_AI;
+        return;
+    }
 }
 
 void setup()
 {
     Serial.begin(115200);
-    EEPROM.begin(80);
-    mqtt_config config;
-    EEPROM.get(0, config);
-    WiFiManagerParameter custom_mqtt_server("server", "mqtt server", config.server, 40);
-    WiFiManagerParameter custom_mqtt_port("port", "mqtt port", config.port, 6);
+    EEPROM.begin(500);
+    EEPROM.get(0, *config);
+    WiFiManagerParameter custom_mqtt_server("server", "mqtt server", config->server, 40);
+    WiFiManagerParameter custom_mqtt_port("port", "mqtt port", config->port, 6);
+    WiFiManagerParameter custom_apikey("apikey", "OpenAI", config->apikey, 180);
     wifimanager.addParameter(&custom_mqtt_server);
     wifimanager.addParameter(&custom_mqtt_port);
-    wifimanager.setSaveConfigCallback([&config, &custom_mqtt_server, &custom_mqtt_port]()
+    wifimanager.addParameter(&custom_apikey);
+    wifimanager.setSaveConfigCallback([&custom_mqtt_server, &custom_mqtt_port, &custom_apikey]()
                                       {
-        strcpy(config.server, custom_mqtt_server.getValue());
-        strcpy(config.port, custom_mqtt_port.getValue());
-        EEPROM.put(0, config);
+        strcpy(config->server, custom_mqtt_server.getValue());
+        strcpy(config->port, custom_mqtt_port.getValue());
+        strcpy(config->apikey, custom_apikey.getValue());
+        EEPROM.put(0, *config);
         EEPROM.commit(); });
     wifimanager.setAPCallback([](WiFiManager *wifimanager)
                               { animator.set_text_and_run("AP Mode: VFD-03", 210, 200); });
@@ -137,7 +146,6 @@ void setup()
     vfd_gui_set_blk_level(light_level);
     vfd_gui_set_text(" boot");
     animator.start_loading(0x01 | 0x20);
-
     wifimanager.autoConnect("VFD-03");
     vfd_gui_set_pic(PIC_WIFI, true);
     web_setup();
@@ -151,7 +159,7 @@ void setup()
 
     menuhandler.begin();
     menuhandler.initializeMenuItems();
-    menuhandler.setSpecialActionCallback(handleUpdateAction);
+    menuhandler.setSpecialActionCallback(handleSpecialAction);
 
     if (!kiwi.isDataAvailable())
     {
@@ -166,15 +174,17 @@ void setup()
         }
         ESP.restart();
     }
+    animator.stop();
     animator.set_text_and_run(WiFi.localIP().toString().c_str(), 210);
     // Initialize MQTT with message callback
-    if (strlen(config.server) > 0)
+    if (strlen(config->server) > 0)
     {
-        mqttManager = new MqttManager(config.server, atoi(config.port), "text/set");
+        mqttManager = new MqttManager(config->server, atoi(config->port), "text/set");
         mqttManager->onMessage(handleMqttMessage);
         mqttManager->begin();
     }
     task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
+    EEPROM.end();
 }
 
 void initOTA()
@@ -321,4 +331,137 @@ void set_tick()
 
 void vfd_synchronous()
 {
+    if (style_page != STYLE_AI)
+        return;
+
+    vfd_gui_set_text(" denke");
+    animator.start_loading(0x01);
+
+    // Use stack allocation for better memory management
+    WiFiClientSecure client;
+    HTTPClient http;
+    JsonDocument doc;
+
+    // Skip certificate validation - only for development!
+    client.setInsecure();
+
+    const char *assistantId = "asst_JiePRqehNsRO3iqruEcwsoH0";
+
+    // Helper function for setting headers
+    auto setHeaders = [&http]()
+    {
+        http.addHeader("Content-Type", "application/json");
+        http.addHeader("Authorization", String("Bearer ") + config->apikey);
+        http.addHeader("OpenAI-Beta", "assistants=v2");
+    };
+
+    // Step 1: Create a thread
+    http.begin(client, "https://api.openai.com/v1/threads");
+    setHeaders();
+
+    int httpResponseCode = http.POST("{}");
+
+    if (httpResponseCode <= 0)
+    {
+        Serial.print("Error creating thread: ");
+        Serial.println(httpResponseCode);
+        http.end();
+        animator.stop();
+        vfd_gui_set_text("AI ERR");
+        style_page = STYLE_TIME;
+        return;
+    }
+
+    deserializeJson(doc, client);
+    String threadId = doc["id"].as<String>();
+    Serial.println("Thread ID: " + threadId);
+    http.end(); // Clean up before next request
+
+    // Step 2: Add message to thread
+    String messagesEndpoint = "https://api.openai.com/v1/threads/" + threadId + "/messages";
+    http.begin(client, messagesEndpoint);
+    setHeaders();
+
+    httpResponseCode = http.POST("{\"role\":\"user\",\"content\":\"hi\"}");
+
+    if (httpResponseCode != 200)
+    {
+        Serial.print("Error adding message: ");
+        Serial.println(httpResponseCode);
+        http.end();
+        animator.stop();
+        vfd_gui_set_text("AI ERR");
+        style_page = STYLE_TIME;
+        return;
+    }
+
+    http.end(); // Clean up before next request
+
+    // Step 3: Create a run
+    String runEndpoint = "https://api.openai.com/v1/threads/" + threadId + "/runs";
+    http.begin(client, runEndpoint);
+    setHeaders();
+
+    String httpRequestData = "{\"assistant_id\":\"" + String(assistantId) +
+                             "\",\"instructions\":\"\"}";
+
+    httpResponseCode = http.POST(httpRequestData);
+    String runId = "";
+
+    if (httpResponseCode != 200)
+    {
+        Serial.print("Error creating run: ");
+        Serial.println(httpResponseCode);
+        http.end();
+        animator.stop();
+        vfd_gui_set_text("AI ERR");
+        style_page = STYLE_TIME;
+        return;
+    }
+
+    deserializeJson(doc, client);
+    runId = doc["id"].as<String>();
+    Serial.println("Run ID: " + runId);
+    http.end(); // Clean up before next request
+
+    // Wait for the run to complete - consider polling instead of fixed delay
+    delay(4000);
+
+    // Step 4: Get messages
+    String messagesGetEndpoint = "https://api.openai.com/v1/threads/" + threadId + "/messages";
+    http.begin(client, messagesGetEndpoint);
+    setHeaders();
+
+    httpResponseCode = http.GET();
+
+    if (httpResponseCode != 200)
+    {
+        Serial.print("Error getting messages: ");
+        Serial.println(httpResponseCode);
+        http.end();
+        animator.stop();
+        vfd_gui_set_text("AI ERR");
+        style_page = STYLE_TIME;
+        return;
+    }
+    Serial.println(http.getString());
+    deserializeJson(doc, http.getString());
+
+    String msg = doc["data"][0]["content"][0]["text"]["value"].as<String>();
+
+    // Handle German umlauts
+    msg.replace("ä", "ae");
+    msg.replace("ö", "oe");
+    msg.replace("ü", "ue");
+    msg.replace("Ä", "Ae");
+    msg.replace("Ö", "Oe");
+    msg.replace("Ü", "Ue");
+    msg.replace("ß", "ss");
+
+    http.end(); // Final cleanup
+    animator.stop();
+    vfd_gui_set_pic(PIC_PLAY, true);
+    animator.set_text_and_run(msg.c_str(), 210);
+    doc.clear();
+    // No need for explicit memory cleanup with stack-allocated objects
 }

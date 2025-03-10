@@ -181,11 +181,18 @@ void MenuHandler::initializeMenuItems()
 {
     // Get the active menu items from JSON
     menuItems = getActiveMenuItems();
+    fileItems = menuItems.size();
 
     // Add "random" menu item at the beginning
     MenuItem random;
     random.menu = "random";
     menuItems.insert(menuItems.begin(), random);
+
+    // Add "AI" menu item at the beginning
+    MenuItem ai;
+    ai.menu = "  ai";
+    ai.numrec = 0;
+    menuItems.push_back(ai);
 
     // Add "update" menu item at the end
     MenuItem upd;
@@ -229,7 +236,7 @@ String MenuHandler::selectCurrentItem()
     size_t menuitem = currentMenuIndex;
     if (currentMenuIndex == 0)
     {
-        menuitem = random(1, menuItems.size() - 2);
+        menuitem = random(1, fileItems);
     }
     else if (menuItems.at(currentMenuIndex).numrec == 0) // Check for spezial item
     {
@@ -245,7 +252,7 @@ String MenuHandler::selectCurrentItem()
     return getRandomRecord(menuItems.at(menuitem));
 }
 
-void MenuHandler::setSpecialActionCallback(std::function<void(const char* item)> callback)
+void MenuHandler::setSpecialActionCallback(std::function<void(const char *item)> callback)
 {
     specialActionCallback = callback;
 }
