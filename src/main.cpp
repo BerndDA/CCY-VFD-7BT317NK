@@ -356,6 +356,7 @@ void vfd_synchronous()
     };
 
     // Step 1: Create a thread
+    http.useHTTP10(true);
     http.begin(client, "https://api.openai.com/v1/threads");
     setHeaders();
 
@@ -371,8 +372,9 @@ void vfd_synchronous()
         style_page = STYLE_TIME;
         return;
     }
-
-    deserializeJson(doc, client);
+    JsonDocument idFilter;
+    idFilter["id"] = true;
+    deserializeJson(doc, http.getStream(), DeserializationOption::Filter(idFilter));
     String threadId = doc["id"].as<String>();
     Serial.println("Thread ID: " + threadId);
     http.end(); // Clean up before next request
@@ -399,6 +401,7 @@ void vfd_synchronous()
 
     // Step 3: Create a run
     String runEndpoint = "https://api.openai.com/v1/threads/" + threadId + "/runs";
+    http.useHTTP10(true);
     http.begin(client, runEndpoint);
     setHeaders();
 
@@ -419,16 +422,36 @@ void vfd_synchronous()
         return;
     }
 
-    deserializeJson(doc, client);
+    deserializeJson(doc, http.getStream(), DeserializationOption::Filter(idFilter));
     runId = doc["id"].as<String>();
     Serial.println("Run ID: " + runId);
     http.end(); // Clean up before next request
 
-    // Wait for the run to complete - consider polling instead of fixed delay
-    delay(4000);
+    do
+    {
+        Serial.println("Waiting for completion...");
+        delay(300);
+        http.useHTTP10(true);
+        http.begin(client, runEndpoint + "/" + runId);
+        setHeaders();
+        httpResponseCode = http.GET();
+        if (httpResponseCode != 200)
+        {
+            Serial.print("Error getting run status: ");
+            Serial.println(httpResponseCode);
+            http.end();
+            animator.stop();
+            vfd_gui_set_text("AI ERR");
+            style_page = STYLE_TIME;
+            return;
+        }
+        deserializeJson(doc, http.getStream());
+        http.end();
+    } while (doc["status"].as<String>() != "completed");
 
     // Step 4: Get messages
     String messagesGetEndpoint = "https://api.openai.com/v1/threads/" + threadId + "/messages";
+    http.useHTTP10(true);
     http.begin(client, messagesGetEndpoint);
     setHeaders();
 
@@ -444,8 +467,9 @@ void vfd_synchronous()
         style_page = STYLE_TIME;
         return;
     }
-    Serial.println(http.getString());
-    deserializeJson(doc, http.getString());
+    JsonDocument msgFilter;
+    msgFilter["data"][0]["content"][0]["text"]["value"] = true;
+    deserializeJson(doc, http.getStream(), DeserializationOption::Filter(msgFilter));
 
     String msg = doc["data"][0]["content"][0]["text"]["value"].as<String>();
 
