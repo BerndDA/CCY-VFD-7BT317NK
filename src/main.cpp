@@ -445,7 +445,7 @@ void vfd_synchronous()
                 return;
         }
         JsonDocument statusFilter;
-        statusFilter["data"] = true;
+        statusFilter["status"] = true;
         deserializeJson(doc, http.getStream(), DeserializationOption::Filter(statusFilter));
         http.end();
 
