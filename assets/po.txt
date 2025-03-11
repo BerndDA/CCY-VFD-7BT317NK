@@ -4,3 +4,15 @@ Ich muss damit arbeiten, was ich bekomme.
 Miriam sagt...
 Dazu habe ich keine Informationen.
 Hä?
+Das war schon immer so.
+Das steht nicht im Backlog.
+Wir haben jetzt keine Zeit für Refactoring.
+Die Stakeholder wollen es so haben.
+Dafür haben wir kein Budget.
+Das ist technisch bestimmt ganz einfach.
+Kannst du das nicht einfach schnell machen?
+Doku machen wir später.
+Das ist doch offensichtlich, oder?
+Die anderen Teams machen das auch so.
+Das ist agil!
+Ich auf die Timeline keinen Einfluss.
