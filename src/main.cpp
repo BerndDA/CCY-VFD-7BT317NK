@@ -46,9 +46,7 @@ struct vfd_config
 };
 
 void set_key_listener();
-IRAM_ATTR void handle_key_interrupt();
 IRAM_ATTR void keyISR();
-void set_tick();
 void task_time_refresh_fun();
 void vfd_synchronous();
 void initAI();
@@ -63,7 +61,6 @@ volatile u8 style_page = STYLE_TIME; // Page display style
 // Timer initialization
 Ticker task_time_refresh; // Time refresh
 
-WiFiManager wifimanager;
 Animator animator;
 Kiwi kiwi;
 MenuHandler menuhandler;
@@ -79,13 +76,6 @@ Ticker task_key_pressed;
 bool isLongPress = false; // Tracks whether long press was detected
 
 vfd_config *config = new vfd_config();
-
-// MQTT message callback
-void handleMqttMessage(const char *message)
-{
-    vfd_gui_set_pic(PIC_PLAY, true);
-    animator.set_text_and_run(message, 210);
-}
 
 // Callback function for other menu items
 void handleSpecialAction(const char *item)
@@ -106,6 +96,7 @@ void handleSpecialAction(const char *item)
     }
     if (strcmp(item, "config") == 0)
     {
+        WiFiManager wifimanager;
         wifimanager.erase();
         ESP.restart();
     }
@@ -119,8 +110,9 @@ void handleSpecialAction(const char *item)
 void setup()
 {
     Serial.begin(115200);
-    EEPROM.begin(500);
+    EEPROM.begin(260);
     EEPROM.get(0, *config);
+    WiFiManager wifimanager;
     WiFiManagerParameter custom_mqtt_server("server", "mqtt server", config->server, 40);
     WiFiManagerParameter custom_mqtt_port("port", "mqtt port", config->port, 6);
     WiFiManagerParameter custom_apikey("apikey", "OpenAI", config->apikey, 180);
@@ -132,6 +124,8 @@ void setup()
         strcpy(config->server, custom_mqtt_server.getValue());
         strcpy(config->port, custom_mqtt_port.getValue());
         strcpy(config->apikey, custom_apikey.getValue());
+        animator.stop();
+        vfd_gui_set_text("saved");
         EEPROM.put(0, *config);
         EEPROM.commit(); });
     wifimanager.setAPCallback([](WiFiManager *wifimanager)
@@ -191,7 +185,10 @@ void initMqtt()
     if (strlen(config->server) > 0)
     {
         mqttManager = new MqttManager(config->server, atoi(config->port), "text/set");
-        mqttManager->onMessage(handleMqttMessage);
+        mqttManager->onMessage([](const char *message)
+                               {
+                                vfd_gui_set_pic(PIC_PLAY, true);
+                                animator.set_text_and_run(message, 210); });
         mqttManager->begin();
     }
 }
@@ -205,15 +202,9 @@ void initAI()
         aiManager->begin();
         aiManager->onComplete([](const String &message)
                               {
-                // This will be called when the AI conversation completes
-                // The message is already displayed by the class
-                // Schedule a return to time display after a delay
-                Ticker returnToTime;
-                returnToTime.once(30, []() {
-                    if (style_page == STYLE_AI) {
-                        style_page = STYLE_TIME;
-                    }
-                }); });
+                                  // This will be called when the AI conversation completes
+                                  // The message is already displayed by the class
+                              });
         aiManager->onError([](const String &errorMessage)
                            {
                 // This will be called if an error occurs
@@ -251,7 +242,6 @@ void loop()
     ArduinoOTA.handle();
     web_loop();
     vfd_synchronous();
-    set_tick();
 }
 
 void set_key_listener()
@@ -358,31 +348,32 @@ void task_time_refresh_fun()
     vfd_gui_set_pic(PIC_WIFI, WiFi.isConnected());
 }
 
-void set_tick()
-{
-}
-
 //////////////////////////////////////////////////////////////////////////////////
 //// Synchronous blocking tasks
 //////////////////////////////////////////////////////////////////////////////////
-void vfd_synchronous() {
-    if (style_page == STYLE_AI) {
-        if (!aiManager) {
+void vfd_synchronous()
+{
+    if (style_page == STYLE_AI)
+    {
+        if (!aiManager)
+        {
             // No API key configured, show error
             vfd_gui_set_text("NO KEY");
             delay(1000);
             style_page = STYLE_TIME;
             return;
         }
-        
-        if (!aiManager->isActive()) {
+
+        if (!aiManager->isActive())
+        {
             // Start a new conversation
             aiManager->startConversation("hi");
         }
     }
-    
+
     // Process the AI manager (does nothing if not active)
-    if (aiManager) {
+    if (aiManager)
+    {
         aiManager->process();
     }
 }
