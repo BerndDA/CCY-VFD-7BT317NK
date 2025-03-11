@@ -57,6 +57,7 @@
      
      String mqttServer;
      int mqttPort;
+     unsigned long lastReconnectAttempt = 0;
      String mqttInTopic;
      String mqttOutTopic;
      String mqttClientId;

@@ -48,37 +48,35 @@ void MqttManager::begin()
 // Reconnect to MQTT server if connection is lost
 void MqttManager::reconnect()
 {
-    // Loop until we're reconnected
-    int attempts = 0;
-    while (!mqttClient.connected() && attempts < 3)
+
+    unsigned long now = millis();
+    if (now - lastReconnectAttempt < 2000 || WiFi.status() != WL_CONNECTED) {
+        // Do nothing if the last attempt was less than 2 seconds ago
+        return;
+    }
+    lastReconnectAttempt = now;
+    Serial.print("Attempting MQTT connection to ");
+    Serial.print(mqttServer);
+    Serial.print(":");
+    Serial.print(mqttPort);
+    Serial.print("...");
+
+    // Attempt to connect
+    if (mqttClient.connect(mqttClientId.c_str(), (mqttOutTopic + "online").c_str(), 0, true, "0"))
     {
-        Serial.print("Attempting MQTT connection to ");
-        Serial.print(mqttServer);
-        Serial.print(":");
-        Serial.print(mqttPort);
-        Serial.print("...");
+        Serial.println("connected");
 
-        // Attempt to connect
-        if (mqttClient.connect(mqttClientId.c_str(), (mqttOutTopic + "online").c_str(), 0, true, "0"))
-        {
-            Serial.println("connected");
-
-            // Once connected, publish an announcement
-            this->publish("VFD device connected");
-            this->publishStatus();
-            // Subscribe to the input topic
-            mqttClient.subscribe(mqttInTopic.c_str());
-        }
-        else
-        {
-            Serial.print("failed, rc=");
-            Serial.print(mqttClient.state());
-            Serial.println(" retry in 2 seconds");
-
-            // Wait before retrying
-            delay(2000);
-            attempts++;
-        }
+        // Once connected, publish an announcement
+        this->publish("VFD device connected");
+        this->publishStatus();
+        // Subscribe to the input topic
+        mqttClient.subscribe(mqttInTopic.c_str());
+    }
+    else
+    {
+        Serial.print("failed, rc=");
+        Serial.print(mqttClient.state());
+        Serial.println(" retry in 2 seconds");
     }
 }
 
