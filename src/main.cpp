@@ -193,7 +193,6 @@ void initMqtt()
                                              { vfd_gui_set_pic(PIC_3D, connected); });
         mqttManager->onMessage([](const char *message)
                                {
-                                WiFi.disconnect();
                                 vfd_gui_set_pic(PIC_PLAY, true);
                                 animator.set_text_and_run(message, 210); });
         mqttManager->begin();
