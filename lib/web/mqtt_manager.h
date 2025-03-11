@@ -1,4 +1,4 @@
- #ifndef MQTT_MANAGER_H
+#ifndef MQTT_MANAGER_H
  #define MQTT_MANAGER_H
  
  #include <Arduino.h>
@@ -27,6 +27,10 @@
      typedef std::function<void(const char*)> MessageCallback;
      void onMessage(MessageCallback callback);
      
+     // Set connection state change callback
+     typedef std::function<void(bool connected)> ConnectionStateCallback;
+     void onConnectionStateChange(ConnectionStateCallback callback);
+     
      // Publish a message to the out topic
      bool publish(const char* message);
      
@@ -54,15 +58,16 @@
  private:
      WiFiClient wifiClient;
      PubSubClient mqttClient;
-     
+     unsigned long lastReconnectAttempt = 0;
      String mqttServer;
      int mqttPort;
-     unsigned long lastReconnectAttempt = 0;
      String mqttInTopic;
      String mqttOutTopic;
      String mqttClientId;
+     bool previousConnectionState = false;
      
      MessageCallback messageCallback;
+     ConnectionStateCallback connectionStateCallback;
  };
  
  #endif // MQTT_MANAGER_H

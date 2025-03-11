@@ -128,9 +128,13 @@ void setup()
         vfd_gui_set_text("saved");
         EEPROM.put(0, *config);
         EEPROM.commit(); });
-    wifimanager.setAPCallback([](WiFiManager *wifimanager)
-                              { animator.set_text_and_run("AP Mode: VFD-03", 210, 200); });
-    set_key_listener();
+    String pwd = String(random(10000000, 99999999));
+    pwd.toUpperCase();
+    wifimanager.setAPCallback([pwd](WiFiManager *wifimanager)
+                              { 
+                                animator.stop();
+                                Serial.println(pwd);
+                                animator.set_text_and_run((pwd + "   ").c_str(), 300, 200); });
     settimeofday_cb([]() { // set callback to execute after time is retrieved
         style_page = STYLE_TIME;
         isTimeSet = true;
@@ -143,7 +147,7 @@ void setup()
     vfd_gui_set_blk_level(light_level);
     vfd_gui_set_text(" boot");
     animator.start_loading(0x01 | 0x20);
-    wifimanager.autoConnect("VFD-03");
+    wifimanager.autoConnect("VFD-03", pwd.c_str());
     vfd_gui_set_pic(PIC_WIFI, true);
     web_setup();
     initOTA();
@@ -185,8 +189,11 @@ void initMqtt()
     if (strlen(config->server) > 0)
     {
         mqttManager = new MqttManager(config->server, atoi(config->port), "text/set");
+        mqttManager->onConnectionStateChange([](bool connected)
+                                             { vfd_gui_set_pic(PIC_3D, connected); });
         mqttManager->onMessage([](const char *message)
                                {
+                                WiFi.disconnect();
                                 vfd_gui_set_pic(PIC_PLAY, true);
                                 animator.set_text_and_run(message, 210); });
         mqttManager->begin();
