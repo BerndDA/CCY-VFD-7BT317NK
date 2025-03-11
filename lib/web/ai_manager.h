@@ -69,6 +69,7 @@ private:
     
     WiFiClientSecure* _client = nullptr;
     HTTPClient* _http = nullptr;
+    JsonDocument* _doc = nullptr;
     
     String _threadId;
     String _runId;
