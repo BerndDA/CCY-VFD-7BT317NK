@@ -35,6 +35,7 @@
 #include <menuhandler.h>
 #include <config.h>
 #include "mqtt_manager.h"
+#include "ai_manager.h"
 #include <EEPROM.h>
 
 struct vfd_config
@@ -50,6 +51,7 @@ IRAM_ATTR void keyISR();
 void set_tick();
 void task_time_refresh_fun();
 void vfd_synchronous();
+void initAI();
 
 bool isTimeSet = false;
 
@@ -66,6 +68,7 @@ Animator animator;
 Kiwi kiwi;
 MenuHandler menuhandler;
 MqttManager *mqttManager = nullptr;
+AiManager *aiManager = nullptr;
 
 // key handling
 volatile bool keyPressed = false;
@@ -177,14 +180,48 @@ void setup()
     animator.stop();
     animator.set_text_and_run(WiFi.localIP().toString().c_str(), 210);
     // Initialize MQTT with message callback
+    initMqtt();
+    initAI();
+    task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
+    EEPROM.end();
+}
+
+void initMqtt()
+{
     if (strlen(config->server) > 0)
     {
         mqttManager = new MqttManager(config->server, atoi(config->port), "text/set");
         mqttManager->onMessage(handleMqttMessage);
         mqttManager->begin();
     }
-    task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
-    EEPROM.end();
+}
+
+void initAI()
+{
+    // Initialize AI Manager with API key from config
+    if (strlen(config->apikey) > 0)
+    {
+        aiManager = new AiManager(&animator, config->apikey);
+        aiManager->begin();
+        aiManager->onComplete([](const String &message)
+                              {
+                // This will be called when the AI conversation completes
+                // The message is already displayed by the class
+                // Schedule a return to time display after a delay
+                Ticker returnToTime;
+                returnToTime.once(30, []() {
+                    if (style_page == STYLE_AI) {
+                        style_page = STYLE_TIME;
+                    }
+                }); });
+        aiManager->onError([](const String &errorMessage)
+                           {
+                // This will be called if an error occurs
+                // The error is already displayed by the class
+                // Return to time display after a short delay
+                delay(1000); // Small delay for user to see error
+                style_page = STYLE_TIME; });
+    }
 }
 
 void initOTA()
@@ -328,187 +365,24 @@ void set_tick()
 //////////////////////////////////////////////////////////////////////////////////
 //// Synchronous blocking tasks
 //////////////////////////////////////////////////////////////////////////////////
-
-void vfd_synchronous()
-{
-    if (style_page != STYLE_AI)
-        return;
-
-    vfd_gui_set_text(" denke");
-    animator.start_loading(0x01);
-
-    // Constants for API endpoints
-    const char *BASE_URL = "https://api.openai.com/v1";
-    const char *ASSISTANTS_BETA = "assistants=v2";
-    const char *assistantId = "asst_JiePRqehNsRO3iqruEcwsoH0";
-
-    // Stack allocation for better memory management
-    WiFiClientSecure client;
-    HTTPClient http;
-    JsonDocument doc;
-    String threadId = "";
-    String runId = "";
-    int httpResponseCode = 0;
-
-    // Skip certificate validation - only for development!
-    client.setInsecure();
-
-    // Helper function for common error handling
-    auto handleError = [&](const char *errorMessage)
-    {
-        Serial.print(errorMessage);
-        Serial.println(httpResponseCode);
-        http.end();
-        animator.stop();
-        vfd_gui_set_text("AI ERR");
-        style_page = STYLE_TIME;
-        return true;
-    };
-
-    // Helper function for setting headers
-    auto setHeaders = [&]()
-    {
-        http.addHeader("Content-Type", "application/json");
-        http.addHeader("Authorization", String("Bearer ") + config->apikey);
-        http.addHeader("OpenAI-Beta", ASSISTANTS_BETA);
-    };
-
-    // Step 1: Create a thread
-    http.useHTTP10(true);
-    http.begin(client, String(BASE_URL) + "/threads");
-    setHeaders();
-
-    httpResponseCode = http.POST("{}");
-    if (httpResponseCode <= 0)
-    {
-        if (handleError("Error creating thread: "))
-            return;
-    }
-
-    // Parse thread ID using filter for efficiency
-    JsonDocument idFilter;
-    idFilter["id"] = true;
-    deserializeJson(doc, http.getStream(), DeserializationOption::Filter(idFilter));
-    threadId = doc["id"].as<String>();
-    Serial.println("Thread ID: " + threadId);
-    http.end(); // Clean up before next request
-
-    // Step 2: Add message to thread
-    http.begin(client, String(BASE_URL) + "/threads/" + threadId + "/messages");
-    setHeaders();
-
-    httpResponseCode = http.POST("{\"role\":\"user\",\"content\":\"hi\"}");
-    if (httpResponseCode != 200)
-    {
-        if (handleError("Error adding message: "))
-            return;
-    }
-    http.end(); // Clean up before next request
-
-    // Step 3: Create a run
-    String runEndpoint = String(BASE_URL) + "/threads/" + threadId + "/runs";
-    http.useHTTP10(true);
-    http.begin(client, runEndpoint);
-    setHeaders();
-
-    String httpRequestData = "{\"assistant_id\":\"" + String(assistantId) +
-                             "\",\"instructions\":\"\"}";
-
-    httpResponseCode = http.POST(httpRequestData);
-    if (httpResponseCode != 200)
-    {
-        if (handleError("Error creating run: "))
-            return;
-    }
-
-    deserializeJson(doc, http.getStream(), DeserializationOption::Filter(idFilter));
-    runId = doc["id"].as<String>();
-    Serial.println("Run ID: " + runId);
-    http.end(); // Clean up before next request
-
-    // Step 4: Poll for run completion with timeout
-    const unsigned long maxWaitTime = 30000; // 30 seconds maximum wait
-    unsigned long startTime = millis();
-    bool isCompleted = false;
-
-    while (!isCompleted && (millis() - startTime < maxWaitTime))
-    {
-        delay(300);
-        http.useHTTP10(true);
-        http.begin(client, runEndpoint + "/" + runId);
-        setHeaders();
-        httpResponseCode = http.GET();
-
-        if (httpResponseCode != 200)
-        {
-            if (handleError("Error getting run status: "))
-                return;
-        }
-        JsonDocument statusFilter;
-        statusFilter["status"] = true;
-        deserializeJson(doc, http.getStream(), DeserializationOption::Filter(statusFilter));
-        http.end();
-
-        String status = doc["status"].as<String>();
-        isCompleted = (status == "completed");
-
-        // Handle potential failures
-        if (status == "failed" || status == "cancelled")
-        {
-            Serial.println("Run ended with status: " + status);
-            animator.stop();
-            vfd_gui_set_text("AI FAIL");
+void vfd_synchronous() {
+    if (style_page == STYLE_AI) {
+        if (!aiManager) {
+            // No API key configured, show error
+            vfd_gui_set_text("NO KEY");
             delay(1000);
             style_page = STYLE_TIME;
             return;
         }
+        
+        if (!aiManager->isActive()) {
+            // Start a new conversation
+            aiManager->startConversation("hi");
+        }
     }
-
-    // Check for timeout
-    if (!isCompleted)
-    {
-        Serial.println("Run timed out");
-        animator.stop();
-        vfd_gui_set_text("TIMEOUT");
-        delay(1000);
-        style_page = STYLE_TIME;
-        return;
+    
+    // Process the AI manager (does nothing if not active)
+    if (aiManager) {
+        aiManager->process();
     }
-
-    // Step 5: Get messages
-    http.useHTTP10(true);
-    http.begin(client, String(BASE_URL) + "/threads/" + threadId + "/messages");
-    setHeaders();
-
-    httpResponseCode = http.GET();
-    if (httpResponseCode != 200)
-    {
-        if (handleError("Error getting messages: "))
-            return;
-    }
-
-    // Filter to get only the message content to reduce memory usage
-    JsonDocument msgFilter;
-    msgFilter["data"][0]["content"][0]["text"]["value"] = true;
-    deserializeJson(doc, http.getStream(), DeserializationOption::Filter(msgFilter));
-
-    String msg = doc["data"][0]["content"][0]["text"]["value"].as<String>();
-    http.end(); // Final cleanup
-
-    // Process character conversion (German umlauts)
-    const char *replacements[][2] = {
-        {"ä", "ae"}, {"ö", "oe"}, {"ü", "ue"}, {"Ä", "Ae"}, {"Ö", "Oe"}, {"Ü", "Ue"}, {"ß", "ss"}};
-
-    for (auto &pair : replacements)
-    {
-        msg.replace(pair[0], pair[1]);
-    }
-
-    // Display the message
-    animator.stop();
-    vfd_gui_set_pic(PIC_PLAY, true);
-    animator.set_text_and_run(msg.c_str(), 210);
-
-    // Clean up
-    doc.clear();
 }

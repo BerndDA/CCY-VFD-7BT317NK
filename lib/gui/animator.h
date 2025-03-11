@@ -32,20 +32,6 @@ const u32 segmentSteps[] = SEGMENT_STEPS;
 // Number of steps in the animation sequence
 #define SEGMENT_STEPS_COUNT (sizeof(segmentSteps) / sizeof(segmentSteps[0]))
 
-// Example usage function for animation
-void animate_segments(uint16_t delay_ms)
-{
-    static uint8_t current_step = 0;
-
-    // Set the current step's segments
-    vfd_gui_set_icon(segmentSteps[current_step], 1);
-
-    // Move to next step with rollover
-    current_step = (current_step + 1) % SEGMENT_STEPS_COUNT;
-
-    // Delay is handled by the calling code
-}
-
 class Animator
 {
 private:
@@ -86,7 +72,7 @@ private:
         _running = true;
         if (_startCallback)
             _startCallback();
-        _ticker.attach_ms(_frame, std::bind(&Animator::_static_callback, this));
+        _ticker.attach_ms_scheduled_accurate(_frame, std::bind(&Animator::_static_callback, this));
     }
 
 public:
