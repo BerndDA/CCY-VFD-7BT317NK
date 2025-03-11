@@ -12,7 +12,7 @@
      // Constructor with default values
      MqttManager(const char* server, 
                  int port, 
-                 const char* inTopic = "text/set");
+                 const char* inTopic = "cmd/#");
      
      // Initialize MQTT connection
      void begin();
@@ -24,7 +24,7 @@
      void loop();
      
      // Set message callback
-     typedef std::function<void(const char*)> MessageCallback;
+     typedef std::function<void(const char* topic, const char* payload)> MessageCallback;
      void onMessage(MessageCallback callback);
      
      // Set connection state change callback

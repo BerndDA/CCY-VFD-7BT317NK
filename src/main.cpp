@@ -50,6 +50,7 @@ IRAM_ATTR void keyISR();
 void task_time_refresh_fun();
 void vfd_synchronous();
 void initAI();
+void initWifi();
 
 bool isTimeSet = false;
 
@@ -110,6 +111,55 @@ void handleSpecialAction(const char *item)
 void setup()
 {
     Serial.begin(115200);
+    vfd_gui_init();
+    vfd_gui_set_blk_level(light_level);
+    vfd_gui_set_text(" boot");
+    animator.onStart([]()
+                     { style_page = STYLE_TEXT; });
+    animator.onEnd([]()
+                   { 
+    vfd_gui_set_pic(PIC_PLAY, false); 
+    style_page = isTimeSet ? STYLE_TIME : STYLE_NOTIME; });
+    animator.start_loading(0x01 | 0x20);
+    initWifi();
+    settimeofday_cb([]() { // set callback to execute after time is retrieved
+        style_page = STYLE_TIME;
+        isTimeSet = true;
+        Serial.println("Time set");
+        vfd_gui_set_pic(PIC_CLOCK, true);
+    });
+    configTime(MY_TZ, MY_NTP_SERVER);
+    web_setup();
+    initOTA();
+    initMqtt();
+    menuhandler.begin();
+    menuhandler.initializeMenuItems();
+    menuhandler.setSpecialActionCallback(handleSpecialAction);
+
+    if (!kiwi.isDataAvailable())
+    {
+        animator.set_text_and_run("Kiwi Loading...", 210, 20);
+        if (kiwi.processApiData())
+        {
+            Serial.println("Data processing completed successfully!");
+        }
+        else
+        {
+            Serial.println("Failed to process API data!");
+        }
+        ESP.restart();
+    }
+
+    animator.stop();
+    animator.set_text_and_run(WiFi.localIP().toString().c_str(), 210);
+
+    initAI();
+    set_key_listener();
+    task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
+}
+
+void initWifi()
+{
     EEPROM.begin(260);
     EEPROM.get(0, *config);
     WiFiManager wifimanager;
@@ -134,67 +184,34 @@ void setup()
                               { 
                                 animator.stop();
                                 Serial.println(pwd);
-                                animator.set_text_and_run((pwd + "   ").c_str(), 300, 200); });
-    settimeofday_cb([]() { // set callback to execute after time is retrieved
-        style_page = STYLE_TIME;
-        isTimeSet = true;
-        Serial.println("Time set");
-        vfd_gui_set_pic(PIC_CLOCK, true);
-    });
-    configTime(MY_TZ, MY_NTP_SERVER);
-
-    vfd_gui_init();
-    vfd_gui_set_blk_level(light_level);
-    vfd_gui_set_text(" boot");
-    animator.start_loading(0x01 | 0x20);
+                                animator.set_text_and_run((pwd + "   ").c_str(), 255, 200); });
     wifimanager.autoConnect("VFD-03", pwd.c_str());
-    vfd_gui_set_pic(PIC_WIFI, true);
-    web_setup();
-    initOTA();
-    animator.onStart([]()
-                     { style_page = STYLE_TEXT; });
-    animator.onEnd([]()
-                   { 
-                     vfd_gui_set_pic(PIC_PLAY, false); 
-                     style_page = isTimeSet ? STYLE_TIME : STYLE_NOTIME; });
-
-    menuhandler.begin();
-    menuhandler.initializeMenuItems();
-    menuhandler.setSpecialActionCallback(handleSpecialAction);
-
-    if (!kiwi.isDataAvailable())
-    {
-        animator.set_text_and_run("Kiwi Loading...", 210, 20);
-        if (kiwi.processApiData())
-        {
-            Serial.println("Data processing completed successfully!");
-        }
-        else
-        {
-            Serial.println("Failed to process API data!");
-        }
-        ESP.restart();
-    }
-    animator.stop();
-    animator.set_text_and_run(WiFi.localIP().toString().c_str(), 210);
-    // Initialize MQTT with message callback
-    initMqtt();
-    initAI();
-    task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
     EEPROM.end();
+    vfd_gui_set_pic(PIC_WIFI, true);
 }
 
 void initMqtt()
 {
     if (strlen(config->server) > 0)
     {
-        mqttManager = new MqttManager(config->server, atoi(config->port), "text/set");
+        mqttManager = new MqttManager(config->server, atoi(config->port), "cmd/#");
         mqttManager->onConnectionStateChange([](bool connected)
                                              { vfd_gui_set_pic(PIC_3D, connected); });
-        mqttManager->onMessage([](const char *message)
+        mqttManager->onMessage([](const char *topic, const char *message)
                                {
-                                vfd_gui_set_pic(PIC_PLAY, true);
-                                animator.set_text_and_run(message, 210); });
+                                   if (strcmp(topic, "text") == 0)
+                                   {
+                                       vfd_gui_set_pic(PIC_PLAY, true);
+                                       animator.set_text_and_run(message, 210);
+                                   }
+                                   else if (strcmp(topic, "display") == 0)
+                                   {
+                                       vfd_gui_set_bck(atoi(message));
+                                   }
+                                   else if (strcmp(topic, "menu") == 0)
+                                   {
+                                       
+                                   } });
         mqttManager->begin();
     }
 }

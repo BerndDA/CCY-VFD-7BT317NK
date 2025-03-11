@@ -13,7 +13,7 @@ MqttManager::MqttManager(const char *server, int port, const char *inTopic)
       previousConnectionState(false)
 {
     // Set default callbacks (empty)
-    messageCallback = [](const char *message) {};
+    messageCallback = [](const char *topic, const char *message) {};
     connectionStateCallback = [](bool connected) {};
 }
 
@@ -36,10 +36,16 @@ void MqttManager::begin()
          Serial.print(topic);
          Serial.print("]: ");
          Serial.println(message);
+
+         // find last / in topic and remove the prefix
+        char *lastSlash = strrchr(topic, '/');
+        if (lastSlash) {
+            topic = lastSlash + 1;
+        }
          
          // Call the user callback with the message
          if (messageCallback) {
-             messageCallback(message);
+             messageCallback(topic, message);
          } });
 
     // Try to connect
@@ -50,8 +56,9 @@ void MqttManager::begin()
 void MqttManager::reconnect()
 {
     unsigned long now = millis();
-    if (now - lastReconnectAttempt < 2000 || !WiFi.isConnected()) {
-        // Do nothing if the last attempt was less than 2 seconds ago. 
+    if (now - lastReconnectAttempt < 2000 || !WiFi.isConnected())
+    {
+        // Do nothing if the last attempt was less than 2 seconds ago.
         // we are inside the runloop and get called every loop
         return;
     }
@@ -72,9 +79,10 @@ void MqttManager::reconnect()
         this->publishStatus();
         // Subscribe to the input topic
         mqttClient.subscribe(mqttInTopic.c_str());
-        
+
         // Call the connection state callback if state changed
-        if (!previousConnectionState && connectionStateCallback) {
+        if (!previousConnectionState && connectionStateCallback)
+        {
             connectionStateCallback(true);
         }
         previousConnectionState = true;
@@ -84,9 +92,10 @@ void MqttManager::reconnect()
         Serial.print("failed, rc=");
         Serial.print(mqttClient.state());
         Serial.println(" retry in 2 seconds");
-        
+
         // Call the connection state callback if state changed
-        if (previousConnectionState && connectionStateCallback) {
+        if (previousConnectionState && connectionStateCallback)
+        {
             connectionStateCallback(false);
         }
         previousConnectionState = false;
@@ -97,16 +106,18 @@ void MqttManager::reconnect()
 void MqttManager::loop()
 {
     bool currentConnectionState = mqttClient.connected();
-    
+
     // Check for connection state changes
-    if (currentConnectionState != previousConnectionState) {
+    if (currentConnectionState != previousConnectionState)
+    {
         // Connection state has changed, call the callback
-        if (connectionStateCallback) {
+        if (connectionStateCallback)
+        {
             connectionStateCallback(currentConnectionState);
         }
         previousConnectionState = currentConnectionState;
     }
-    
+
     if (!currentConnectionState)
     {
         reconnect();
@@ -124,9 +135,10 @@ void MqttManager::onMessage(MessageCallback callback)
 void MqttManager::onConnectionStateChange(ConnectionStateCallback callback)
 {
     connectionStateCallback = callback;
-    
+
     // Call the callback immediately with the current connection state
-    if (callback) {
+    if (callback)
+    {
         bool currentState = mqttClient.connected();
         callback(currentState);
     }
