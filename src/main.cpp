@@ -109,7 +109,7 @@ void handleSpecialAction(const char *item)
         wifimanager.erase();
         ESP.restart();
     }
-    if (strcmp(item, "  ai") == 0)
+    if (strcmp(item, "ai") == 0)
     {
         style_page = STYLE_AI;
         return;

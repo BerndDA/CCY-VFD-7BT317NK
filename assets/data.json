@@ -1,37 +1,68 @@
 [
     {
+        "menu": "zufall",
+        "intro": "",
+        "numrec": 0,
+        "type": "random"
+    },
+    {
         "menu": "po",
         "intro": "PO sagt...",
-        "numrec": 5
+        "numrec": 5,
+        "type": "file"
     },
     {
         "menu": "ceo",
         "intro": "CEO sagt...",
-        "numrec": 1
+        "numrec": 1,
+        "type": "file"
     },
     {
         "menu": "arch",
         "intro": "Architekt sagt...",
-        "numrec": 1
+        "numrec": 1,
+        "type": "file"
     },
     {
         "menu": "8ball",
         "intro": "8-Ball sagt...",
-        "numrec": 20
+        "numrec": 20,
+        "type": "file"
     },
     {
         "menu": "scrum",
         "intro": "team meint...",
-        "numrec": 7
+        "numrec": 7,
+        "type": "file"
     },
     {
         "menu": "orakel",
         "intro": "Glaskugel zeigt...",
-        "numrec": 20
+        "numrec": 20,
+        "type": "file"
     },
     {
         "menu": "kiwi",
         "intro": "kiwi sagt...",
-        "numrec": 0
+        "numrec": 0,
+        "type": "file"
+    },
+    {
+        "menu": "ai",
+        "intro": "",
+        "numrec": 0,
+        "type": "ai"
+    },
+    {
+        "menu": "update",
+        "intro": "",
+        "numrec": 0,
+        "type": "update"
+    },
+    {
+        "menu": "config",
+        "intro": "",
+        "numrec": 0,
+        "type": "config"
     }
 ]

@@ -57,32 +57,30 @@ bool MenuHandler::parseJsonFile(JsonDocument &doc)
     return true;
 }
 
-std::vector<MenuItem> MenuHandler::getActiveMenuItems()
+void MenuHandler::loadMenuItems()
 {
-    std::vector<MenuItem> activeItems;
-
     JsonDocument doc;
 
     // Parse the JSON file
     if (!parseJsonFile(doc))
     {
-        return activeItems; // Return empty vector on error
+        return;
     }
 
     for (JsonVariant item : doc.as<JsonArray>())
     {
         MenuItem menuItem = createMenuItemFromJson(item);
-        activeItems.push_back(menuItem);
-
+        menuItems.push_back(menuItem);
+        if(menuItem.type == "file")
+            fileMenuItems.push_back(menuItem);
         // Download the menu file if it doesn't exist
-        if (!LittleFS.exists(menuItem.file))
+        if (menuItem.type == "file" && !LittleFS.exists(menuItem.file))
         {
             String url = String(BASE_URL) + String("/") + menuItem.file;
             FileDownloader downloader;
             downloader.downloadFile(url.c_str(), menuItem.file.c_str());
         }
     }
-    return activeItems;
 }
 
 MenuItem MenuHandler::createMenuItemFromJson(JsonVariant &item)
@@ -100,6 +98,7 @@ MenuItem MenuHandler::createMenuItemFromJson(JsonVariant &item)
     menuItem.intro = item["intro"].as<String>();
     menuItem.numrec = item["numrec"];
     menuItem.file = item["menu"].as<String>() + ".txt";
+    menuItem.type = item["type"].as<String>();
 
     return menuItem;
 }
@@ -180,31 +179,7 @@ String MenuHandler::replaceUmlautsAndSpecialChars(const String &text)
 void MenuHandler::initializeMenuItems()
 {
     // Get the active menu items from JSON
-    menuItems = getActiveMenuItems();
-    fileItems = menuItems.size();
-
-    // Add "random" menu item at the beginning
-    MenuItem random;
-    random.menu = "random";
-    menuItems.insert(menuItems.begin(), random);
-
-    // Add "AI" menu item at the beginning
-    MenuItem ai;
-    ai.menu = "  ai";
-    ai.numrec = 0;
-    menuItems.push_back(ai);
-
-    // Add "update" menu item at the end
-    MenuItem upd;
-    upd.menu = "update";
-    upd.numrec = 0;
-    menuItems.push_back(upd);
-
-    // Add "config" menu item at the end
-    MenuItem cnf;
-    cnf.menu = "config";
-    cnf.numrec = 0;
-    menuItems.push_back(cnf);
+    loadMenuItems();
 
     // Reset index to beginning
     currentMenuIndex = 0;
@@ -232,24 +207,23 @@ String MenuHandler::selectCurrentItem()
 {
     Serial.println("Select Menu Item");
 
-    // If first item (random) is selected, choose a random menu item
-    size_t menuitem = currentMenuIndex;
-    if (currentMenuIndex == 0)
+    MenuItem* selectedItem = &menuItems.at(currentMenuIndex);
+    if (selectedItem->type == "random")
     {
-        menuitem = random(1, fileItems);
+        selectedItem = &fileMenuItems.at(random(0, fileMenuItems.size()));
     }
-    else if (menuItems.at(currentMenuIndex).numrec == 0) // Check for spezial item
+    else if (selectedItem->type != "file") // Check for spezial item
     {
         // Execute the special action callback if set
         if (specialActionCallback)
         {
-            specialActionCallback(menuItems.at(currentMenuIndex).menu.c_str());
+            specialActionCallback(selectedItem->type.c_str());
         }
         return "";
     }
 
-    // Get a random record from the selected menu
-    return getRandomRecord(menuItems.at(menuitem));
+    // Get a random record from the selected file menu item
+    return getRandomRecord(*selectedItem);
 }
 
 void MenuHandler::setSpecialActionCallback(std::function<void(const char *item)> callback)
