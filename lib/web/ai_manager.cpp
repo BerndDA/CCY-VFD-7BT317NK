@@ -3,8 +3,8 @@
 #include "gui.h"
 
 // Constructor
-AiManager::AiManager(Animator *animator, const char *apiKey)
-    : _animator(animator), _apiKey(apiKey)
+AiManager::AiManager(Animator *animator, const char *apiKey, const char *assistantId)
+    : _animator(animator), _apiKey(apiKey), _assistantId(assistantId)
 {
 }
 

@@ -43,6 +43,7 @@ struct vfd_config
     char server[40];
     char port[6];
     char apikey[180];
+    char assistantId[40];
 };
 
 void set_key_listener();
@@ -160,20 +161,23 @@ void setup()
 
 void initWifi()
 {
-    EEPROM.begin(260);
+    EEPROM.begin(280);
     EEPROM.get(0, *config);
     WiFiManager wifimanager;
     WiFiManagerParameter custom_mqtt_server("server", "mqtt server", config->server, 40);
     WiFiManagerParameter custom_mqtt_port("port", "mqtt port", config->port, 6);
     WiFiManagerParameter custom_apikey("apikey", "OpenAI", config->apikey, 180);
+    WiFiManagerParameter custom_assistantid("assistant", "OpenAI", config->assistantId, 40);
     wifimanager.addParameter(&custom_mqtt_server);
     wifimanager.addParameter(&custom_mqtt_port);
     wifimanager.addParameter(&custom_apikey);
-    wifimanager.setSaveConfigCallback([&custom_mqtt_server, &custom_mqtt_port, &custom_apikey]()
+    wifimanager.addParameter(&custom_assistantid);
+    wifimanager.setSaveConfigCallback([&custom_mqtt_server, &custom_mqtt_port, &custom_apikey, &custom_assistantid]()
                                       {
         strcpy(config->server, custom_mqtt_server.getValue());
         strcpy(config->port, custom_mqtt_port.getValue());
         strcpy(config->apikey, custom_apikey.getValue());
+        strcpy(config->assistantId, custom_assistantid.getValue());
         animator.stop();
         vfd_gui_set_text("saved");
         EEPROM.put(0, *config);
@@ -221,7 +225,7 @@ void initAI()
     // Initialize AI Manager with API key from config
     if (strlen(config->apikey) > 0)
     {
-        aiManager = new AiManager(&animator, config->apikey);
+        aiManager = new AiManager(&animator, config->apikey, config->assistantId);
         aiManager->begin();
         aiManager->onComplete([](const String &message)
                               {

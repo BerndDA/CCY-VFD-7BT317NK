@@ -13,7 +13,7 @@ class Animator;
 class AiManager {
 public:
     // Constructor
-    AiManager(Animator* animator, const char* apiKey);
+    AiManager(Animator* animator, const char* apiKey, const char* assistantId);
     
     // Destructor
     ~AiManager();
@@ -64,7 +64,7 @@ private:
     // Instance variables
     Animator* _animator;
     String _apiKey;
-    String _assistantId = "asst_JiePRqehNsRO3iqruEcwsoH0";
+    String _assistantId;
     State _state = State::IDLE;
     
     WiFiClientSecure* _client = nullptr;
