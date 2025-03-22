@@ -208,9 +208,9 @@ void initMqtt()
                                    {
                                        vfd_gui_set_bck(atoi(message));
                                    }
-                                   else if (strcmp(topic, "menu") == 0)
+                                   else if (strcmp(topic, "ai") == 0)
                                    {
-                                       
+                                        style_page = STYLE_AI;
                                    } });
         mqttManager->begin();
     }
