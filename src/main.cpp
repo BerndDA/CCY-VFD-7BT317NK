@@ -52,6 +52,8 @@ void task_time_refresh_fun();
 void vfd_synchronous();
 void initAI();
 void initWifi();
+void startFadeDemo();
+void fadeDemoProgress();
 
 bool isTimeSet = false;
 
@@ -105,6 +107,12 @@ void handleSpecialAction(const char *item)
     if (strcmp(item, "ai") == 0)
     {
         style_page = STYLE_AI;
+        return;
+    }
+    if (strcmp(item, "demo") == 0)
+    {
+        Serial.println("Starting fade demo...");
+        startFadeDemo();
         return;
     }
 }
@@ -403,4 +411,119 @@ void vfd_synchronous()
     {
         aiManager->process();
     }
+}
+
+// Flag to track demo mode
+bool fadeDemo = false;
+int fadeStep = 0;
+Ticker fadeDemoTicker;
+
+void startFadeDemo()
+{
+    // Start the fade effect demo
+    fadeDemo = true;
+    fadeStep = 0;
+
+    // Disable regular time updates during demo
+    task_time_refresh.detach();
+
+    // Set up a ticker to progress through the demo
+    fadeDemoTicker.attach(3, fadeDemoProgress);
+
+    // Start with the first effect
+    fadeDemoProgress();
+}
+
+void stopFadeDemo()
+{
+    // Stop the demo and return to normal operation
+    fadeDemo = false;
+    fadeDemoTicker.detach();
+
+    // Clear any pending animations
+    animator.stop();
+
+    // Show a message
+    vfd_gui_set_text(" END ");
+    delay(1000);
+
+    // Return to time display
+    task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
+    style_page = STYLE_TIME;
+}
+
+void fadeDemoProgress()
+{
+    if (!fadeDemo)
+        return;
+
+    switch (fadeStep)
+    {
+    // case 0:
+    //     // Basic fade in
+    //     vfd_gui_clear();
+    //     delay(500);
+    //     animator.start_fade_in("FADEIN", 150);
+    //     break;
+
+    // case 1:
+    //     // Basic fade out
+    //     animator.start_fade_out("FADEOU", 150);
+    //     break;
+
+    // case 2:
+    //     // Advanced segment-by-segment fade in
+    //     vfd_gui_clear();
+    //     delay(500);
+    //     animator.start_advanced_fade_in("SEG-IN", 80);
+    //     break;
+
+    // case 3:
+    //     // Advanced segment-by-segment fade out
+    //     animator.start_advanced_fade_out("SEG-OU", 80);
+    //     break;
+
+    case 0:
+        // Random fade in
+        vfd_gui_clear();
+        delay(500);
+        animator.start_random_fade_in("RAN100", 100);
+        break;
+    case 1:
+        // Random fade in
+        vfd_gui_clear();
+        delay(500);
+        animator.start_random_fade_in("RAND50", 50);
+        break;
+
+    // case 5:
+    //     // Wave effect
+    //     animator.start_wave_effect("WAVEEF", 120);
+    //     break;
+
+    case 2:
+        // Typewriter effect
+        animator.start_typewriter_effect("TYPEWR", 200);
+        break;
+
+    case 3:
+        // Reveal effect
+        animator.start_reveal_effect("REVEAL", 50);
+        break;
+
+    // case 8:
+    //     // Combine with scrolling text - show a message that scrolling will follow
+    //     animator.start_fade_in("SCROLL", 150);
+    //     delay(1000);
+    //     // Then start scrolling
+    //     animator.set_text_and_run("NOW SCROLLING TEXT AFTER FADE", 210);
+    //     break;
+
+    case 4:
+        // End demo
+        stopFadeDemo();
+        return;
+    }
+
+    fadeStep++;
 }
