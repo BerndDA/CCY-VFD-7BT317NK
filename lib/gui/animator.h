@@ -1,6 +1,7 @@
 #include <Ticker.h>
 #include <Arduino.h>
 #include <gui.h>
+#include <functional>
 
 // loading anim
 //  Define the segments sequence for animation
@@ -70,6 +71,7 @@ class Animator
 {
 private:
     Ticker _ticker;
+    Ticker _delayedCallbackTicker; // New ticker for delayed callback execution
     String _text;
     uint8_t _frame = 210;
     uint8_t _index = 0;
@@ -83,13 +85,26 @@ private:
     u32 _originalPatterns[6];
 
     bool _running = false;
-    void (*_endCallback)() = 0;
-    void (*_startCallback)() = 0;
+    void (*_globalEndCallback)() = nullptr;   // Global callback for all animations
+    void (*_startCallback)() = nullptr;
     std::function<void()> _animCallback = nullptr;
+    
+    // New: Animation-specific callback
+    std::function<void()> _currentAnimEndCallback = nullptr;
 
     static void _static_callback(Animator *instance)
     {
         instance->loop();
+    }
+
+    // Helper method to execute a delayed callback
+    void executeDelayedCallback(std::function<void()> callback, unsigned long delayMs)
+    {
+        if (callback) {
+            _delayedCallbackTicker.once_ms(delayMs, [callback]() {
+                callback();
+            });
+        }
     }
 
     void text_callback()
@@ -374,30 +389,45 @@ private:
         }
     }
 
-    void start(uint8_t cycles = 1)
-    {
-        _index = 0;
-        _cycles = cycles;
-        _currentCycle = 1;
-        _running = true;
-        if (_startCallback)
-            _startCallback();
-        _ticker.attach_ms_scheduled_accurate(_frame, std::bind(&Animator::_static_callback, this));
+void start(uint8_t cycles = 1, std::function<void()> callback = nullptr, unsigned long delayMs = 0)
+{
+    _index = 0;
+    _cycles = cycles;
+    _currentCycle = 1;
+    _running = true;
+    
+    // Store the animation-specific callback, wrapping it with delay if needed
+    if (callback && delayMs > 0) {
+        // Create a new callback that includes the delay
+        _currentAnimEndCallback = [this, callback, delayMs]() {
+            // Schedule the actual callback after the delay
+            _delayedCallbackTicker.once_ms(delayMs, callback);
+        };
+    } else {
+        // No delay, just store the callback directly
+        _currentAnimEndCallback = callback;
     }
+    
+    if (_startCallback)
+        _startCallback();
+        
+    _ticker.attach_ms_scheduled_accurate(_frame, std::bind(&Animator::_static_callback, this));
+}
 
 public:
     Animator() {}
 
-    void set_text_and_run(const char *text, uint8_t frame = 210, uint8_t cycles = 1)
+    void set_text_and_run(const char *text, uint8_t frame = 210, uint8_t cycles = 1, 
+                         std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
 
         set_text(text, frame);
-        start(cycles);
+        start(cycles, callback, delayMs);
     }
 
-    void start_loading(uint8_t positions)
+    void start_loading(uint8_t positions, std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -408,7 +438,7 @@ public:
         _positions = positions;
         _animCallback = std::bind(&Animator::loading_callback, this);
         _animType = ANIM_LOADING;
-        start(255);
+        start(255, callback, delayMs);
     }
 
     void set_text(const char *text, uint8_t frame = 210)
@@ -421,7 +451,8 @@ public:
         _animType = ANIM_TEXT;
     }
 
-    void start_fade_in(const char *text, uint8_t frame = 120)
+    void start_fade_in(const char *text, uint8_t frame = 120, 
+                      std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -432,10 +463,11 @@ public:
         _length = FADE_SEGMENTS_COUNT - 1;
         _animCallback = std::bind(&Animator::fade_in_callback, this);
         _animType = ANIM_FADE_IN;
-        start(1); // Run through the fade sequence once
+        start(1, callback, delayMs); // Run through the fade sequence once
     }
 
-    void start_fade_out(const char *text, uint8_t frame = 120)
+    void start_fade_out(const char *text, uint8_t frame = 120, 
+                       std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -447,10 +479,11 @@ public:
         _length = 0;                      // End at 0 visibility
         _animCallback = std::bind(&Animator::fade_out_callback, this);
         _animType = ANIM_FADE_OUT;
-        start(1); // Run through the fade sequence once
+        start(1, callback, delayMs); // Run through the fade sequence once
     }
 
-    void start_advanced_fade_in(const char *text, uint8_t frame = 80)
+    void start_advanced_fade_in(const char *text, uint8_t frame = 80, 
+                              std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -477,10 +510,11 @@ public:
         _length = 20; // Maximum number of segments per character
         _animCallback = std::bind(&Animator::advanced_fade_in_callback, this);
         _animType = ANIM_ADVANCED_FADE_IN;
-        start(1);
+        start(1, callback, delayMs);
     }
 
-    void start_advanced_fade_out(const char *text, uint8_t frame = 80)
+    void start_advanced_fade_out(const char *text, uint8_t frame = 80, 
+                               std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -505,10 +539,11 @@ public:
         _length = 20; // Maximum number of segments per character
         _animCallback = std::bind(&Animator::advanced_fade_out_callback, this);
         _animType = ANIM_ADVANCED_FADE_OUT;
-        start(1);
+        start(1, callback, delayMs);
     }
 
-    void start_random_fade_in(const char *text, uint8_t frame = 50)
+    void start_random_fade_in(const char *text, uint8_t frame = 50, 
+                            std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -533,10 +568,11 @@ public:
         _length = 10; // 10 steps for random fade
         _animCallback = std::bind(&Animator::random_fade_in_callback, this);
         _animType = ANIM_RANDOM_FADE_IN;
-        start(1);
+        start(1, callback, delayMs);
     }
 
-    void start_random_fade_out(const char *text, uint8_t frame = 50)
+    void start_random_fade_out(const char *text, uint8_t frame = 50, 
+                             std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -561,10 +597,11 @@ public:
         _length = 10; // 10 steps for random fade
         _animCallback = std::bind(&Animator::random_fade_out_callback, this);
         _animType = ANIM_RANDOM_FADE_OUT;
-        start(1);
+        start(1, callback, delayMs);
     }
 
-    void start_wave_effect(const char *text, uint8_t frame = 100)
+    void start_wave_effect(const char *text, uint8_t frame = 100, 
+                         std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -585,10 +622,11 @@ public:
         _length = _text.length() - 6; // Length minus display width
         _animCallback = std::bind(&Animator::wave_effect_callback, this);
         _animType = ANIM_WAVE;
-        start(1);
+        start(1, callback, delayMs);
     }
 
-    void start_typewriter_effect(const char *text, uint8_t frame = 200)
+    void start_typewriter_effect(const char *text, uint8_t frame = 200, 
+                               std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -604,10 +642,11 @@ public:
         _length = strlen(text);
         _animCallback = std::bind(&Animator::typewriter_effect_callback, this);
         _animType = ANIM_TYPEWRITER;
-        start(1);
+        start(1, callback, delayMs);
     }
 
-    void start_reveal_effect(const char *text, uint8_t frame = 150)
+    void start_reveal_effect(const char *text, uint8_t frame = 150, 
+                           std::function<void()> callback = nullptr, unsigned long delayMs = 0)
     {
         if (_running)
             stop();
@@ -622,20 +661,31 @@ public:
         _length = 6; // 6 steps for the 6 characters
         _animCallback = std::bind(&Animator::reveal_effect_callback, this);
         _animType = ANIM_REVEAL;
-        start(1);
+        start(1, callback, delayMs);
     }
 
     void stop()
     {
         _running = false;
         _ticker.detach();
-        if (_endCallback)
-            _endCallback();
+        _delayedCallbackTicker.detach(); // Ensure any pending delayed callbacks are cancelled
+        
+        // Execute animation-specific callback if there's one
+        if (_currentAnimEndCallback) {
+            auto callback = _currentAnimEndCallback;
+            _currentAnimEndCallback = nullptr; // Clear it to prevent double execution
+            callback(); // Execute the animation-specific callback
+        }
+        // Only call the global callback if there's no animation-specific callback
+        // This indicates we've reached the end of a sequence
+        else if (_globalEndCallback) {
+            _globalEndCallback();
+        }
     }
 
     void onEnd(void (*callback)())
     {
-        _endCallback = callback;
+        _globalEndCallback = callback;
     }
 
     void onStart(void (*callback)())

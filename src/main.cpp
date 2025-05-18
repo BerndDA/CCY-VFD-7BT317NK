@@ -53,7 +53,6 @@ void vfd_synchronous();
 void initAI();
 void initWifi();
 void startFadeDemo();
-void fadeDemoProgress();
 
 bool isTimeSet = false;
 
@@ -112,7 +111,10 @@ void handleSpecialAction(const char *item)
     if (strcmp(item, "demo") == 0)
     {
         Serial.println("Starting fade demo...");
+
+        animator.stop();
         startFadeDemo();
+
         return;
     }
 }
@@ -360,16 +362,43 @@ void task_time_refresh_fun()
         tm timeinfo;
         time(&now);
         localtime_r(&now, &timeinfo);
-        char buffer[60];
+        char buffer[10];
+        strftime(buffer, sizeof(buffer), "%H%M%S", &timeinfo);
+        
         if (timeinfo.tm_sec % 20 == 0)
         {
             if (mqttManager)
                 mqttManager->publishDynamic();
-            strftime(buffer, sizeof(buffer), "%A %d %B %Y", &timeinfo);
-            animator.set_text_and_run(buffer, 210);
+            
+            // Create a copy of the time data that will persist beyond this function
+            // This is needed because the lambda will execute later
+            struct tm* timeCopy = new struct tm;
+            memcpy(timeCopy, &timeinfo, sizeof(struct tm));
+            
+            animator.start_random_fade_out(buffer, 100, [timeCopy]() {
+                // Use the copied time data for the date display
+                char datebuffer[60];
+                strftime(datebuffer, sizeof(datebuffer), "%A %d %B %Y", timeCopy);                            
+                animator.set_text_and_run(datebuffer, 210, 1, [timeCopy]() {
+                    // Get the CURRENT time for the fade-in
+                    // Don't use the old timeCopy data
+                    time_t currentNow;
+                    tm currentTimeinfo;
+                    time(&currentNow);
+                    localtime_r(&currentNow, &currentTimeinfo);
+                    
+                    char currentTimeBuffer[10];
+                    strftime(currentTimeBuffer, sizeof(currentTimeBuffer), "%H%M%S", &currentTimeinfo);
+                    animator.start_random_fade_in(currentTimeBuffer, 50);
+                    
+                    // Clean up the allocated memory when done with timeCopy
+                    delete timeCopy;
+                });
+            });
+            
             return;
         }
-        strftime(buffer, sizeof(buffer), "%H%M%S", &timeinfo);
+        
         vfd_gui_set_text(buffer);
         vfd_gui_set_maohao1(mh_state);
         vfd_gui_set_maohao2(mh_state);
@@ -380,6 +409,7 @@ void task_time_refresh_fun()
         vfd_gui_set_text("NO NTP");
         vfd_gui_set_pic(PIC_CLOCK, false);
     }
+    
     vfd_gui_set_pic(PIC_WIFI, WiFi.isConnected());
 }
 
@@ -413,117 +443,19 @@ void vfd_synchronous()
     }
 }
 
-// Flag to track demo mode
-bool fadeDemo = false;
-int fadeStep = 0;
-Ticker fadeDemoTicker;
-
 void startFadeDemo()
 {
-    // Start the fade effect demo
-    fadeDemo = true;
-    fadeStep = 0;
-
-    // Disable regular time updates during demo
-    task_time_refresh.detach();
-
-    // Set up a ticker to progress through the demo
-    fadeDemoTicker.attach(3, fadeDemoProgress);
-
-    // Start with the first effect
-    fadeDemoProgress();
-}
-
-void stopFadeDemo()
-{
-    // Stop the demo and return to normal operation
-    fadeDemo = false;
-    fadeDemoTicker.detach();
-
-    // Clear any pending animations
-    animator.stop();
-
-    // Show a message
-    vfd_gui_set_text(" END ");
-    delay(1000);
-
-    // Return to time display
-    task_time_refresh.attach_ms(VFD_TIME_FRAME, task_time_refresh_fun);
-    style_page = STYLE_TIME;
-}
-
-void fadeDemoProgress()
-{
-    if (!fadeDemo)
-        return;
-
-    switch (fadeStep)
-    {
-    // case 0:
-    //     // Basic fade in
-    //     vfd_gui_clear();
-    //     delay(500);
-    //     animator.start_fade_in("FADEIN", 150);
-    //     break;
-
-    // case 1:
-    //     // Basic fade out
-    //     animator.start_fade_out("FADEOU", 150);
-    //     break;
-
-    // case 2:
-    //     // Advanced segment-by-segment fade in
-    //     vfd_gui_clear();
-    //     delay(500);
-    //     animator.start_advanced_fade_in("SEG-IN", 80);
-    //     break;
-
-    // case 3:
-    //     // Advanced segment-by-segment fade out
-    //     animator.start_advanced_fade_out("SEG-OU", 80);
-    //     break;
-
-    case 0:
-        // Random fade in
-        vfd_gui_clear();
-        delay(500);
-        animator.start_random_fade_in("RAN100", 100);
-        break;
-    case 1:
-        // Random fade in
-        vfd_gui_clear();
-        delay(500);
-        animator.start_random_fade_in("RAND50", 50);
-        break;
-
-    // case 5:
-    //     // Wave effect
-    //     animator.start_wave_effect("WAVEEF", 120);
-    //     break;
-
-    case 2:
-        // Typewriter effect
-        animator.start_typewriter_effect("TYPEWR", 200);
-        break;
-
-    case 3:
-        // Reveal effect
-        animator.start_reveal_effect("REVEAL", 50);
-        break;
-
-    // case 8:
-    //     // Combine with scrolling text - show a message that scrolling will follow
-    //     animator.start_fade_in("SCROLL", 150);
-    //     delay(1000);
-    //     // Then start scrolling
-    //     animator.set_text_and_run("NOW SCROLLING TEXT AFTER FADE", 210);
-    //     break;
-
-    case 4:
-        // End demo
-        stopFadeDemo();
-        return;
-    }
-
-    fadeStep++;
+    // Start the animation sequence with chained callbacks
+    // First animation: Random fade-in effect (fast)
+    animator.start_random_fade_in("RAN100", 100, [&]()
+                                  {
+        // Second animation: Random fade-in effect (slower)
+        animator.start_random_fade_in("RAND50", 50, [&]() {
+            // Third animation: Typewriter effect
+            animator.start_typewriter_effect("TYPEWR", 200, [&]() {
+                // Final animation: Reveal effect
+                // No callback - this will trigger the global onEnd when complete
+                animator.start_reveal_effect("REVEAL", 150);
+            }, 300);
+        },500); }, 500);
 }
