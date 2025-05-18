@@ -54,6 +54,12 @@
         "type": "ai"
     },
     {
+        "menu": "demo",
+        "intro": "",
+        "numrec": 0,
+        "type": "demo"
+    },
+    {
         "menu": "update",
         "intro": "",
         "numrec": 0,
