@@ -1,4 +1,4 @@
-// app/Application.h
+// app/Application.h - Updated with OTA
 #ifndef APPLICATION_H
 #define APPLICATION_H
 
@@ -27,6 +27,9 @@ private:
     // Timing
     unsigned long lastUpdateTime;
     static constexpr unsigned long UPDATE_INTERVAL = 100; // 100ms
+    
+    // Private methods
+    void initializeOTA();
     
 public:
     Application();

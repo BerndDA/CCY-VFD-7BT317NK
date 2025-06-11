@@ -1,10 +1,12 @@
+// hal/VfdDisplay.cpp - Working version
 #include "VfdDisplay.h"
 #include "gui.h" // Your existing GUI functions
 
 VfdDisplay::VfdDisplay() 
-    : brightness(2), activeIcons(0), powered(true) {
+    : brightness(2), activeIcons(0), powered(false) {
     colonStates[0] = false;
     colonStates[1] = false;
+    Serial.println("VfdDisplay: Constructor called");
 }
 
 VfdDisplay::~VfdDisplay() {
@@ -12,9 +14,12 @@ VfdDisplay::~VfdDisplay() {
 }
 
 void VfdDisplay::setText(const std::string& text) {
-    if (!powered) return;
-    
-    // Use existing vfd_gui_set_text
+    if (!powered) {
+        Serial.println("VfdDisplay::setText - WARNING: Display not powered!");
+        return;
+    }
+
+    // Use existing vfd_gui_set_text directly
     vfd_gui_set_text(text.c_str());
 }
 
@@ -26,7 +31,11 @@ void VfdDisplay::setCharAt(size_t index, char c) {
 }
 
 void VfdDisplay::clear() {
-    if (!powered) return;
+    if (!powered) {
+        Serial.println("VfdDisplay::clear - WARNING: Display not powered!");
+        return;
+    }
+    Serial.println("VfdDisplay::clear");
     vfd_gui_clear();
 }
 
@@ -45,7 +54,12 @@ void VfdDisplay::clearIcons() {
 void VfdDisplay::setBrightness(uint8_t level) {
     if (level > 7) level = 7;
     brightness = level;
-    vfd_gui_set_blk_level(brightness);
+    Serial.print("VfdDisplay::setBrightness - Level: ");
+    Serial.println(brightness);
+    
+    if (powered) {
+        vfd_gui_set_blk_level(brightness);
+    }
 }
 
 void VfdDisplay::setColon(uint8_t colonNumber, bool enabled) {
@@ -60,17 +74,32 @@ void VfdDisplay::setColon(uint8_t colonNumber, bool enabled) {
 }
 
 void VfdDisplay::powerOn() {
-    if (!powered) {
-        powered = true;
-        vfd_gui_init();
-        vfd_gui_set_blk_level(brightness);
+    Serial.println("VfdDisplay::powerOn - Starting...");
+    
+    if (powered) {
+        Serial.println("VfdDisplay::powerOn - Already powered");
+        return;
     }
+    
+    // Initialize the VFD hardware
+    vfd_gui_init();
+    
+    // Small delay for hardware stabilization
+    delay(100);
+    // Set brightness
+    vfd_gui_set_blk_level(brightness);
+    
+    // Ensure backlight is on
+    vfd_gui_set_bck(1);
+    
+    powered = true;
 }
 
 void VfdDisplay::powerOff() {
+    Serial.println("VfdDisplay::powerOff");
     if (powered) {
-        powered = false;
         vfd_gui_stop();
+        powered = false;
     }
 }
 

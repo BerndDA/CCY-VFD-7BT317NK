@@ -1,12 +1,24 @@
-// states/TimeState.cpp
+// app/states/TimeState.cpp
 #include "TimeState.h"
 #include "app/Application.h"
 #include "services/TimeService.h"
 #include "services/NetworkService.h"
+#include "animator.h"
 #include <time.h>
 
 TimeState::TimeState(Application* application) 
-    : State(application), lastUpdateTime(0), colonVisible(true) {
+    : State(application), 
+      lastUpdateTime(0), 
+      colonVisible(true),
+      isAnimating(false),
+      lastSecond(-1) {
+    animator = std::make_unique<Animator>();
+}
+
+TimeState::~TimeState() {
+    if (animator) {
+        animator->stop();
+    }
 }
 
 void TimeState::onEnter() {
@@ -21,66 +33,143 @@ void TimeState::onEnter() {
     if (app->getNetworkService()->isConnected()) {
         app->getDisplay()->setIcon(DisplayIcon::WIFI, true);
     }
+    
+    isAnimating = false;
+    lastSecond = -1;
 }
 
 void TimeState::onExit() {
-    // Don't clear icons - they should persist across states
+    // Stop any ongoing animation
+    if (animator) {
+        animator->stop();
+    }
+    isAnimating = false;
 }
 
 void TimeState::onUpdate() {
+    // Don't update display if animating
+    if (isAnimating) {
+        return;
+    }
+    
     unsigned long currentTime = millis();
     
-    // Update every 500ms
+    // Update every 500ms for colon blinking
     if (currentTime - lastUpdateTime >= 500) {
         lastUpdateTime = currentTime;
+        updateTimeDisplay();
+    }
+}
+
+void TimeState::updateTimeDisplay() {
+    TimeService* timeService = app->getTimeService();
+    
+    if (timeService && timeService->isTimeSynced()) {
+        // Get current time
+        time_t now;
+        tm timeinfo;
+        time(&now);
+        localtime_r(&now, &timeinfo);
         
+        // Check if we should show date (every 20 seconds)
+        if (timeinfo.tm_sec % 20 == 0 && timeinfo.tm_sec != lastSecond) {
+            lastSecond = timeinfo.tm_sec;
+            savedTimeInfo = timeinfo; // Save for animation callback
+            showDateAnimation();
+            return;
+        }
+        
+        // Normal time display
+        char buffer[10];
+        strftime(buffer, sizeof(buffer), "%H%M%S", &timeinfo);
+        
+        // Update display
+        app->getDisplay()->setText(buffer);
+        
+        // Toggle colons
+        app->getDisplay()->setColon(0, colonVisible);
+        app->getDisplay()->setColon(1, colonVisible);
+        colonVisible = !colonVisible;
+        
+        // Update last second
+        lastSecond = timeinfo.tm_sec;
+    } else {
+        // No time sync
+        app->getDisplay()->setText("NO NTP");
+        app->getDisplay()->setColon(0, false);
+        app->getDisplay()->setColon(1, false);
+    }
+}
+
+void TimeState::showDateAnimation() {
+    if (isAnimating) {
+        return; // Already animating
+    }
+    
+    isAnimating = true;
+    
+    // Get current time for the fade out
+    char timeBuffer[10];
+    strftime(timeBuffer, sizeof(timeBuffer), "%H%M%S", &savedTimeInfo);
+    
+    // Create a copy of the saved time info that will persist
+    tm* timeCopy = new tm;
+    memcpy(timeCopy, &savedTimeInfo, sizeof(tm));
+    
+    // Start fade out animation
+    animator->start_random_fade_out(timeBuffer, 100, [this, timeCopy]() {
+        // After fade out, show date
+        char dateBuffer[60];
+        strftime(dateBuffer, sizeof(dateBuffer), "%A %d %B %Y", timeCopy);
+        
+        // Set the date text and run scroll animation
+        animator->set_text_and_run(dateBuffer, 210, 1, [this, timeCopy]() {
+            // After date scroll, fade back in with current time
+            // Get the CURRENT time for the fade-in
+            time_t currentNow;
+            tm currentTimeinfo;
+            time(&currentNow);
+            localtime_r(&currentNow, &currentTimeinfo);
+            
+            char currentTimeBuffer[10];
+            strftime(currentTimeBuffer, sizeof(currentTimeBuffer), "%H%M%S", &currentTimeinfo);
+            
+            animator->start_random_fade_in(currentTimeBuffer, 50, [this, timeCopy]() {
+                // Animation complete
+                isAnimating = false;
+                delete timeCopy; // Clean up allocated memory
+            });
+        });
+    });
+}
+
+void TimeState::onButtonEvent(ButtonEvent event) {
+    if (event == ButtonEvent::SHORT_PRESS) {
+        // Short press: Show date immediately or show menu item
         TimeService* timeService = app->getTimeService();
-        if (timeService && timeService->isTimeSynced()) {
+        if (timeService && timeService->isTimeSynced() && !isAnimating) {
             // Get current time
             time_t now;
             tm timeinfo;
             time(&now);
             localtime_r(&now, &timeinfo);
             
-            // Format time string
-            char buffer[10];
-            strftime(buffer, sizeof(buffer), "%H%M%S", &timeinfo);
+            // Format date
+            char dateBuffer[60];
+            strftime(dateBuffer, sizeof(dateBuffer), "%A %d %B %Y", &timeinfo);
             
-            // Update display
-            app->getDisplay()->setText(buffer);
+            // Stop any animation and show date with scroll
+            animator->stop();
+            isAnimating = true;
             
-            // Toggle colons
-            app->getDisplay()->setColon(0, colonVisible);
-            app->getDisplay()->setColon(1, colonVisible);
-            colonVisible = !colonVisible;
-        } else {
-            app->getDisplay()->setText("NO NTP");
-            app->getDisplay()->setColon(0, false);
-            app->getDisplay()->setColon(1, false);
+            animator->set_text_and_run(dateBuffer, 210, 1, [this]() {
+                isAnimating = false;
+            });
         }
     }
-}
-
-void TimeState::onButtonEvent(ButtonEvent event) {
-    if (event == ButtonEvent::SHORT_PRESS) {
-        // Short press: Show date temporarily
-        TimeService* timeService = app->getTimeService();
-        if (timeService && timeService->isTimeSynced()) {
-            String date = timeService->getFormattedDate();
-            Serial.print("Date: ");
-            Serial.println(date);
-            // In the future, you could trigger a scroll animation here
-            // For now, just display first 6 chars
-            app->getDisplay()->setText(date.substring(0, 6).c_str());
-        }
-    } else if (event == ButtonEvent::LONG_PRESS) {
+    else if (event == ButtonEvent::LONG_PRESS) {
         // Long press: Enter menu
-        Serial.println("Long press detected - would enter menu");
-        // app->getStateManager()->changeState(StateType::MENU);
-        // For now, just flash the display
-        app->getDisplay()->clear();
-        delay(200);
-        onUpdate(); // Force immediate update
+        app->getStateManager()->changeState(StateType::MENU);
     }
 }
 
