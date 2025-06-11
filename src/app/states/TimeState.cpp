@@ -144,8 +144,11 @@ void TimeState::showDateAnimation() {
 }
 
 void TimeState::onButtonEvent(ButtonEvent event) {
+    Serial.print("TimeState: Button event - ");
+    Serial.println(static_cast<int>(event));
+    
     if (event == ButtonEvent::SHORT_PRESS) {
-        // Short press: Show date immediately or show menu item
+        // Short press: Show date immediately
         TimeService* timeService = app->getTimeService();
         if (timeService && timeService->isTimeSynced() && !isAnimating) {
             // Get current time
@@ -168,11 +171,16 @@ void TimeState::onButtonEvent(ButtonEvent event) {
         }
     }
     else if (event == ButtonEvent::LONG_PRESS) {
-        // Long press: Enter menu
+        // Long press released: Enter menu
+        Serial.println("TimeState: Long press - entering menu");
         app->getStateManager()->changeState(StateType::MENU);
     }
+    else if (event == ButtonEvent::LONG_PRESS_HOLD) {
+        // Button is being held - could show visual feedback
+        // For now, just log it
+        Serial.println("TimeState: Button held");
+    }
 }
-
 void TimeState::onNetworkStateChange(bool connected) {
     // Network state changed - update WiFi icon
     app->getDisplay()->setIcon(DisplayIcon::WIFI, connected);

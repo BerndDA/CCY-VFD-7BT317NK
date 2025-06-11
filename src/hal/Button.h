@@ -11,56 +11,29 @@ private:
     std::function<void(ButtonEvent)> eventCallback;
     
     // Button state tracking
+    bool currentState;
     bool lastState;
+    unsigned long lastDebounceTime;
     unsigned long pressStartTime;
+    bool buttonPressed;
     bool longPressHandled;
+    bool longPressHoldActive;
     
     static constexpr unsigned long DEBOUNCE_DELAY = 50;
     static constexpr unsigned long LONG_PRESS_TIME = 500;
+    static constexpr unsigned long LONG_PRESS_HOLD_INTERVAL = 800;
     
 public:
-    Button(uint8_t buttonPin) : pin(buttonPin), lastState(HIGH), 
-                                pressStartTime(0), longPressHandled(false) {}
+    Button(uint8_t buttonPin);
     
-    void begin() override {
-        pinMode(pin, INPUT_PULLUP);
-        lastState = digitalRead(pin);
-    }
+    void begin() override;
+    void update() override;
+    void onButtonEvent(std::function<void(ButtonEvent)> callback) override;
     
-    void update() override {
-        // Simple button handling - you can enhance this with your existing logic
-        bool currentState = digitalRead(pin);
-        
-        if (currentState != lastState) {
-            if (currentState == LOW) { // Button pressed
-                pressStartTime = millis();
-                longPressHandled = false;
-            } else { // Button released
-                unsigned long pressDuration = millis() - pressStartTime;
-                
-                if (!longPressHandled && pressDuration < LONG_PRESS_TIME) {
-                    if (eventCallback) {
-                        eventCallback(ButtonEvent::SHORT_PRESS);
-                    }
-                }
-            }
-            lastState = currentState;
-        }
-        
-        // Check for long press
-        if (currentState == LOW && !longPressHandled) {
-            if (millis() - pressStartTime >= LONG_PRESS_TIME) {
-                longPressHandled = true;
-                if (eventCallback) {
-                    eventCallback(ButtonEvent::LONG_PRESS);
-                }
-            }
-        }
-    }
-    
-    void onButtonEvent(std::function<void(ButtonEvent)> callback) override {
-        eventCallback = callback;
-    }
+private:
+    void handleButtonPress();
+    void handleButtonRelease();
+    void checkLongPress();
 };
 
 #endif // BUTTON_H
