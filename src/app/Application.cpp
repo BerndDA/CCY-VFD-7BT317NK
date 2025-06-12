@@ -6,7 +6,7 @@
 #include "services/NetworkService.h"
 #include "services/ConfigService.h"
 #include "states/TimeState.h"
-//#include "states/MenuState.h"
+#include "states/MenuState.h"
 //#include "states/TextScrollState.h"
 #include "states/ConfigState.h"
 #include <Arduino.h>
@@ -59,9 +59,9 @@ bool Application::initialize() {
     display = std::make_unique<VfdDisplay>();
     display->powerOn();
     display->setBrightness(2);
-    display->setText("BOOT");
-    delay(500); // Show BOOT briefly
-    
+    display->setText(" BOOT");
+    globalAnimator.start_loading(0x01);
+   
     // Initialize button
     Serial.println("- Initializing button...");
     button = std::make_unique<Button>(KEY1);
@@ -79,8 +79,8 @@ bool Application::initialize() {
     stateManager->registerState(StateType::TIME, 
         std::make_unique<TimeState>(this));
     
-    // stateManager->registerState(StateType::MENU, 
-    //     std::make_unique<MenuState>(this));
+    stateManager->registerState(StateType::MENU, 
+        std::make_unique<MenuState>(this));
     
     // stateManager->registerState(StateType::TEXT_SCROLL, 
     //     std::make_unique<TextScrollState>(this));
@@ -90,8 +90,7 @@ bool Application::initialize() {
     
     // Initialize network service with loading animation
     Serial.println("- Initializing network service...");
-    display->setText("WiFi");
-    globalAnimator.start_loading(0x01);
+    display->setText(" WiFi");
     
     networkService = std::make_unique<NetworkService>();
     
@@ -102,13 +101,6 @@ bool Application::initialize() {
         
         stateManager->handleNetworkStateChange(connected);
         display->setIcon(DisplayIcon::WIFI, connected);
-        
-        if (connected) {
-            // Show IP address briefly when connected
-            globalAnimator.stop();
-            display->setText(WiFi.localIP().toString().substring(0, 6).c_str());
-            delay(2000);
-        }
     });
     
     networkService->onConfigSave([this](const NetworkService::NetworkConfig& config) {
@@ -141,9 +133,7 @@ bool Application::initialize() {
     
     // Show network status
     if (networkService->isConnected()) {
-        display->setText(WiFi.localIP().toString().substring(0, 6).c_str());
         display->setIcon(DisplayIcon::WIFI, true);
-        delay(2000);
     } else {
         display->setText("NO WiFi");
         delay(1000);
@@ -211,24 +201,20 @@ void Application::initializeOTA() {
     
     ArduinoOTA.onStart([this]() {
         Serial.println("OTA: Start");
-        globalAnimator.stop();
-        globalAnimator.set_text_and_run("*OTA*", 210, 200);
         display->setIcon(DisplayIcon::REC, true);
     });
     
     ArduinoOTA.onEnd([this]() {
         Serial.println("OTA: End");
-        globalAnimator.stop();
         display->setIcon(DisplayIcon::REC, false);
         display->setText("REBOOT");
-        delay(1000);
         ESP.restart();
     });
     
     ArduinoOTA.onProgress([this](unsigned int progress, unsigned int total) {
         static unsigned int lastPercent = 0;
         unsigned int percent = (progress / (total / 100));
-        if (percent != lastPercent && percent % 10 == 0) {
+        if (percent != lastPercent) {
             lastPercent = percent;
             char buf[7];
             sprintf(buf, "OTA%3d", percent);
