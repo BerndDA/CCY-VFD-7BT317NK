@@ -1,10 +1,15 @@
-// app/states/TimeState.cpp
+// app/states/TimeState.cpp - Updated with menu action execution
 #include "TimeState.h"
+#include "MenuState.h"
 #include "app/Application.h"
 #include "services/TimeService.h"
 #include "services/NetworkService.h"
 #include "animator.h"
+#include "menuhandler.h"
 #include <time.h>
+
+// External reference to menu handler for checking pending actions
+extern std::unique_ptr<MenuHandler> menuHandler;
 
 TimeState::TimeState(Application* application) 
     : State(application), 
@@ -147,8 +152,27 @@ void TimeState::onButtonEvent(ButtonEvent event) {
     Serial.print("TimeState: Button event - ");
     Serial.println(static_cast<int>(event));
     
+    // Static flag to track if we've already entered menu during this long press
+    static bool longPressHandled = false;
+    
     if (event == ButtonEvent::SHORT_PRESS) {
-        // Short press: Show date immediately
+        // Reset the flag on any short press
+        longPressHandled = false;
+        
+        // Check if there's a pending menu action to execute
+        State* menuState = app->getStateManager()->getState(StateType::MENU);
+        if (menuState) {
+            MenuState* menu = static_cast<MenuState*>(menuState);
+            
+            // Check if menu has a pending selection
+            if (menu->hasPendingAction()) {
+                Serial.println("TimeState: Executing pending menu action");
+                menu->executeSelectedAction();
+                return;
+            }
+        }
+        
+        // No pending menu action - show date
         TimeService* timeService = app->getTimeService();
         if (timeService && timeService->isTimeSynced() && !isAnimating) {
             // Get current time
@@ -170,17 +194,21 @@ void TimeState::onButtonEvent(ButtonEvent event) {
             });
         }
     }
-    else if (event == ButtonEvent::LONG_PRESS) {
-        // Long press released: Enter menu
-        Serial.println("TimeState: Long press - entering menu");
-        app->getStateManager()->changeState(StateType::MENU);
-    }
     else if (event == ButtonEvent::LONG_PRESS_HOLD) {
-        // Button is being held - could show visual feedback
-        // For now, just log it
-        Serial.println("TimeState: Button held");
+        // Enter menu immediately on first long press hold event
+        if (!longPressHandled) {
+            longPressHandled = true;
+            Serial.println("TimeState: Long press hold - entering menu");
+            app->getStateManager()->changeState(StateType::MENU);
+        }
+    }
+    else if (event == ButtonEvent::LONG_PRESS) {
+        // Long press released - reset the flag
+        Serial.println("TimeState: Long press released");
+        longPressHandled = false;
     }
 }
+
 void TimeState::onNetworkStateChange(bool connected) {
     // Network state changed - update WiFi icon
     app->getDisplay()->setIcon(DisplayIcon::WIFI, connected);

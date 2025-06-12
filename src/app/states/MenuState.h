@@ -1,4 +1,4 @@
-// app/states/MenuState.h
+// app/states/MenuState.h - Updated with action execution methods
 #ifndef MENU_STATE_H
 #define MENU_STATE_H
 
@@ -27,10 +27,16 @@ public:
     StateType getType() const override { return StateType::MENU; }
     const char* getName() const override { return "Menu"; }
     
+    // Methods for menu action execution
+    bool hasPendingAction() const;
+    void executeSelectedAction();
+    
+    // Get menu handler for external access (if needed)
+    MenuHandler* getMenuHandler() { return menuHandler.get(); }
+    
 private:
     void displayCurrentMenuItem();
     void scrollToNext();
-    void selectCurrentItem();
     void flashMenuItem();
     void startFadeDemo();
 };

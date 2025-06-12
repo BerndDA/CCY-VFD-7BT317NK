@@ -38,6 +38,7 @@ public:
     // Getters
     State* getCurrentState() { return currentState; }
     StateType getCurrentStateType() const;
+    State* getState(StateType type);
 };
 
 #endif // STATE_MANAGER_H

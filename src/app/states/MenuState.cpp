@@ -1,7 +1,7 @@
-// app/states/MenuState.cpp - Fixed includes
+// app/states/MenuState.cpp - Simplified implementation
 #include "MenuState.h"
 #include "app/Application.h"
-#include "services/NetworkService.h"  // Add this include
+#include "services/NetworkService.h"
 #include "menuhandler.h"
 #include "animator.h"
 #include <Arduino.h>
@@ -68,7 +68,6 @@ void MenuState::onEnter() {
             // AI menu item - will implement AI state later
             app->getDisplay()->setText("AI");
             delay(1000);
-            app->getStateManager()->changeState(StateType::TIME);
         }
         else if (strcmp(item, "demo") == 0) {
             // Start animation demo
@@ -81,8 +80,8 @@ void MenuState::onEnter() {
     // Display first menu item
     displayCurrentMenuItem();
     
-    // Don't start scrolling immediately - wait for long press hold
-    isScrolling = false;
+    // Start scrolling immediately when entering menu via long press
+    isScrolling = true;
     lastScrollTime = millis();
 }
 
@@ -93,7 +92,7 @@ void MenuState::onExit() {
 }
 
 void MenuState::onUpdate() {
-    // Auto-scroll through menu items while in long-press mode
+    // Auto-scroll through menu items while button is held
     if (isScrolling) {
         unsigned long currentTime = millis();
         if (currentTime - lastScrollTime >= SCROLL_INTERVAL) {
@@ -108,18 +107,28 @@ void MenuState::onButtonEvent(ButtonEvent event) {
     Serial.println(static_cast<int>(event));
     
     if (event == ButtonEvent::SHORT_PRESS) {
-        // Short press: select current item
-        Serial.println("MenuState: Selecting current item");
-        selectCurrentItem();
+        // Short press in menu should not do anything
+        Serial.println("MenuState: Ignoring short press in menu");
     }
     else if (event == ButtonEvent::LONG_PRESS) {
-        // Long press detected - start scrolling
-        Serial.println("MenuState: Long press - starting scroll");
-        isScrolling = true;
-        lastScrollTime = millis();
+        // Long press released - stop scrolling and flash selected item
+        Serial.println("MenuState: Long press released - flashing and saving selection");
+        isScrolling = false;
+        
+        // Save the selected index as pending
+        menuHandler->pendingMenuIndex = menuHandler->getCurrentMenuIndex();
+        Serial.print("MenuState: Saved pending index: ");
+        Serial.println(menuHandler->pendingMenuIndex);
+        
+        // Flash the selected item
+        flashMenuItem();
+        
+        // After flashing, return to time display
+        app->getStateManager()->changeState(StateType::TIME);
     }
     else if (event == ButtonEvent::LONG_PRESS_HOLD) {
         // Continue scrolling while button is held
+        // This keeps the scrolling active
         isScrolling = true;
     }
 }
@@ -148,41 +157,9 @@ void MenuState::scrollToNext() {
     app->getDisplay()->setText(nextItem.c_str());
 }
 
-void MenuState::selectCurrentItem() {
-    // Get the selected text from menu handler
-    String selectedText = menuHandler->selectCurrentItem();
-    
-    if (selectedText.length() > 0) {
-        // We got text to display
-        Serial.print("MenuState: Selected text - ");
-        Serial.println(selectedText);
-        
-        // Stop any ongoing animation
-        globalAnimator.stop();
-        
-        // Show play icon and animate text
-        app->getDisplay()->setIcon(DisplayIcon::PLAY, true);
-        
-        // Set up animation end callback
-        // globalAnimator.onEnd([this]() {
-        //     // After animation, clear play icon and return to time
-        //     app->getDisplay()->setIcon(DisplayIcon::PLAY, false);
-        //     app->getStateManager()->changeState(StateType::TIME);
-        // });
-        
-        // Start the text animation
-        globalAnimator.set_text_and_run(selectedText.c_str(), 210);
-    } else {
-        // Special action was handled by callback, or empty selection
-        // The special action callback handles state changes if needed
-        Serial.println("MenuState: Special action or empty selection");
-    }
-}
-
 void MenuState::flashMenuItem() {
-    // Visual feedback - blink current menu text when button is released after long press
+    // Visual feedback - blink current menu text
     Serial.println("MenuState: Flashing selection");
-    isScrolling = false; // Stop scrolling
     
     const auto& items = menuHandler->getMenuItems();
     uint8_t index = menuHandler->getCurrentMenuIndex();
@@ -190,7 +167,7 @@ void MenuState::flashMenuItem() {
     if (index < items.size()) {
         String currentText = items[index].menu;
         
-        // Flash the selected item
+        // Flash the selected item 4 times
         for (int i = 0; i < 4; i++) {
             app->getDisplay()->clear();
             delay(100);
@@ -200,20 +177,64 @@ void MenuState::flashMenuItem() {
     }
 }
 
+bool MenuState::hasPendingAction() const {
+    return menuHandler && menuHandler->hasPendingAction();
+}
+
+void MenuState::executeSelectedAction() {
+    if (!hasPendingAction()) {
+        return;
+    }
+    
+    Serial.print("MenuState: Executing action for pending index ");
+    Serial.println(menuHandler->pendingMenuIndex);
+    
+    // Set current index to the pending selection
+    menuHandler->setCurrentMenuIndex(menuHandler->pendingMenuIndex);
+    
+    // Execute the action
+    String result = menuHandler->selectCurrentItem();
+    
+    if (result.length() > 0) {
+        // Text to display - use animator
+        globalAnimator.stop();
+        app->getDisplay()->setIcon(DisplayIcon::PLAY, true);
+        
+        globalAnimator.onEnd([]() {
+            // The global animator's onEnd is already set up in the original code
+            // to clear the PLAY icon and return to the appropriate state
+        });
+        
+        globalAnimator.set_text_and_run(result.c_str(), 210);
+    }
+    
+    // Clear the pending action
+    menuHandler->clearPendingAction();
+}
+
 void MenuState::startFadeDemo() {
     // Animation demo sequence
     Serial.println("MenuState: Starting animation demo");
     
-    // Chain multiple animations together with callbacks
-    globalAnimator.start_random_fade_in("RANDOM", 100, [this]() {
-        globalAnimator.start_random_fade_in("FADE", 50, [this]() {
-            globalAnimator.start_typewriter_effect("TYPE", 200, [this]() {
-                globalAnimator.start_reveal_effect("REVEAL", 150, [this]() {
-                    globalAnimator.start_wave_effect("WAVE EFFECT DEMO", 100, [this]() {
-                        globalAnimator.start_fade_out("DONE", 120, [this]() {
-                            // Return to time after demo
-                            app->getStateManager()->changeState(StateType::TIME);
-                        }, 500);
+    // Set callback to return to time after demo
+    globalAnimator.onEnd([]() {
+        // Note: We can't access 'this' in a plain function pointer
+        // The animation will end and we'll handle state change differently
+    });
+    
+    // Chain multiple animations together
+    // First animation: Random fade-in effect (fast)
+    globalAnimator.start_random_fade_in("RANDOM", 100, []() {
+        // Second animation: Random fade-in effect (slower)
+        globalAnimator.start_random_fade_in("FADE", 50, []() {
+            // Third animation: Typewriter effect
+            globalAnimator.start_typewriter_effect("TYPE", 200, []() {
+                // Fourth animation: Reveal effect
+                globalAnimator.start_reveal_effect("REVEAL", 150, []() {
+                    // Fifth animation: Wave effect
+                    globalAnimator.start_wave_effect("WAVE", 100, []() {
+                        // Final animation: Fade out
+                        globalAnimator.start_fade_out("DONE", 120);
                     });
                 });
             }, 300);

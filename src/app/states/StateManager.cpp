@@ -93,3 +93,11 @@ StateType StateManager::getCurrentStateType() const {
     }
     return StateType::TIME; // Default
 }
+
+State* StateManager::getState(StateType type) {
+    auto it = states.find(type);
+    if (it != states.end()) {
+        return it->second.get();
+    }
+    return nullptr;
+}

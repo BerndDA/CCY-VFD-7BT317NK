@@ -50,6 +50,26 @@ public:
   // Flash/blink the current menu item text (for visual feedback)
   void flashCurrentMenuItem();
 
+  uint8_t pendingMenuIndex = 255; // 255 means no pending selection
+
+  void setCurrentMenuIndex(uint8_t index)
+  {
+    if (index < menuItems.size())
+    {
+      currentMenuIndex = index;
+    }
+  }
+
+  bool hasPendingAction() const
+  {
+    return pendingMenuIndex != 255 && pendingMenuIndex < menuItems.size();
+  }
+
+  void clearPendingAction()
+  {
+    pendingMenuIndex = 255;
+  }
+
 private:
   const char *jsonFilename;        // JSON filename
   std::vector<MenuItem> menuItems; // Menu items vector
