@@ -16,7 +16,8 @@ TimeState::TimeState(Application* application)
       lastUpdateTime(0), 
       colonVisible(true),
       isAnimating(false),
-      lastSecond(-1) {
+      lastSecond(-1),
+      longPressHandled(false) {
     animator = std::make_unique<Animator>();
 }
 
@@ -28,6 +29,9 @@ TimeState::~TimeState() {
 
 void TimeState::onEnter() {
     app->getDisplay()->clear();
+
+    // Reset button handling state
+    longPressHandled = false;  // Reset when entering state
     
     // Show clock icon if time is synced
     if (app->getTimeService()->isTimeSynced()) {
@@ -52,9 +56,11 @@ void TimeState::onExit() {
 }
 
 void TimeState::onUpdate() {
-    // Don't update display if animating
-    if (isAnimating) {
-        return;
+    // Don't update display if ANY animation is running
+    extern Animator globalAnimator;  // Get reference to global animator
+    
+    if (isAnimating || globalAnimator.is_running()) {
+        return;  // Don't update display while any animation is active
     }
     
     unsigned long currentTime = millis();
@@ -152,8 +158,6 @@ void TimeState::onButtonEvent(ButtonEvent event) {
     Serial.print("TimeState: Button event - ");
     Serial.println(static_cast<int>(event));
     
-    // Static flag to track if we've already entered menu during this long press
-    static bool longPressHandled = false;
     
     if (event == ButtonEvent::SHORT_PRESS) {
         // Reset the flag on any short press

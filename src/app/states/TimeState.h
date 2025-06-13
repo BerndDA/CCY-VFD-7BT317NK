@@ -16,7 +16,7 @@ private:
     std::unique_ptr<Animator> animator;
     bool isAnimating;
     int lastSecond;
-    
+    bool longPressHandled; 
     // For date display animation
     struct tm savedTimeInfo;
     
